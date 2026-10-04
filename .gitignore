@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# file generati da pdflatex durante le prove
+*.aux
+*.toc
+*.out
+*.synctex.gz

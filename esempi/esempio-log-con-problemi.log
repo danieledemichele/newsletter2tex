@@ -1,0 +1,76 @@
+Conversione Newsletter Ubuntu-it 031.2026
+Data: 04/10/2026 11:36
+Origine: file locale ~/Dropbox/Ubuntu/Newsletter Ubuntu/2026etti.txt
+Output: ~/Dropbox/Ubuntu/Newsletter Ubuntu/2026/031/Newsletter Ubuntu-it 031.2026.tex
+==============================================================================
+Riepilogo: 2 errori, 15 avvisi, 10 refusi
+  ERRORE  impedisce una conversione corretta: va sistemato
+  AVVISO  markup sospetto o non riconosciuto: controllare il risultato
+  REFUSO  possibile errore di battitura nel testo
+  INFO    solo informativo
+==============================================================================
+
+DA CONTROLLARE (in ordine di riga del .txt)
+------------------------------------------------------------------------------
+
+Riga 3:  == Articolo di prova ==
+   [AVVISO] Articolo senza 'Fonte': «Articolo di prova»
+
+Riga 4:  Testo con [[https://esempio.org/pagina]] senza testo e [[https://esempio.org/x | ]] vuoto.
+   [AVVISO] Link senza testo: nel PDF comparirà l'URL intero (https://esempio.org/pagina)
+   [AVVISO] Link con '|' ma testo vuoto: [[https://esempio.org/x | ]]
+   [AVVISO] Link senza testo: nel PDF comparirà l'URL intero (https://esempio.org/x)
+
+Riga 5:  Un link rotto [[https://esempio.org/a testo senza barra]] e uno non chiuso [[https://esempio.org.
+   [ERRORE] Parentesi di link non bilanciate: «Un link rotto [[https://esempio.org/a testo senza barra]] e uno non chiuso [[https://esemp»
+   [AVVISO] Link senza testo: nel PDF comparirà l'URL intero (https://esempio.org/a testo senza barra)
+   [AVVISO] URL con spazi: «https://esempio.org/a testo senza barra» (manca la '|' tra indirizzo e testo?)
+   [AVVISO] Markup wiki non riconosciuto, rimasto nel testo così com'è: «[[»
+
+Riga 6:  Ecco ~-piccolo-~, ^apice^, ,,pedice,, e `codice` e <<FootNote(nota)>> e {{https://img.png}}.
+   [AVVISO] Macro wiki ignorata: <<FootNote(nota)>>
+   [AVVISO] Immagine/allegato non convertito: {{https://img.png}}
+   [AVVISO] Testo piccolo/grande ~- -~ / ~+ +~ reso come testo normale
+
+Riga 7:  Perchè il kernel ,  è veloce  ma non troppo,anzi.Davvero (molto "veloce.
+   [REFUSO] Doppio spazio
+   [REFUSO] Spazio prima di «,»
+   [REFUSO] Manca lo spazio dopo «,»
+   [REFUSO] Manca lo spazio dopo il punto: «… troppo,anzi.Davvero (mol…»
+   [REFUSO] Parentesi tonde non bilanciate (1 aperte, 0 chiuse)
+   [REFUSO] Virgolette " in numero dispari (una non chiusa?)
+   [REFUSO] «perchè» → «perché»
+
+Riga 8:  Un pò di il il testo con l' aggiornamento.
+   [REFUSO] Parola ripetuta: «il il»
+   [REFUSO] «pò» → «po'»
+   [REFUSO] Spazio dopo l'apostrofo: «l' aggiornamento»
+
+Riga 9:  * lista senza spazio
+   [AVVISO] Sembra un elemento di lista ma manca lo spazio iniziale (' * '): finisce attaccato al paragrafo precedente
+
+Riga 10:  == Titolo rotto =
+   [ERRORE] Titolo non riconosciuto: i segni '=' all'inizio e alla fine devono essere uguali e separati da spazi (es. '== Titolo ==')
+
+Riga 12:  == Sezione vuota ==
+   [AVVISO] Sezione vuota: «Sezione vuota»
+
+Riga 16:  ''Fonte'': [[https://a.org | a.org]]
+   [AVVISO] Fonte ripetuta (già alla riga 15): https://a.org
+
+Riga 20:  * Mario Rossi
+   [AVVISO] Nome senza link alla pagina utente: «Mario Rossi»
+
+Generale:
+   [AVVISO] Immagini non trovate in ~/Dropbox/Ubuntu/Newsletter Ubuntu/2026/031 (né nella cartella dell'anno o in Immagini/): newlogo1.png, newlogo2.png, Facebook.png, Twitter.png, YouTube.png, Telegram.png
+
+INFORMAZIONI
+------------------------------------------------------------------------------
+   riga 5    URL senza parentesi convertito in link: https://esempio.org
+   Nel .txt manca 'Ha inoltre collaborato all'edizione:' — sezione omessa
+   Numero 031/2026, settimana lunedì 28 settembre – domenica 4 ottobre, testata: Ottobre 2026
+   Sezioni: Notizie da Ubuntu
+   Sottosezioni/articoli: 3
+   Redazione: Daniele De Michele, Mario Rossi
+   Collaborato all'edizione: —
+   Realizzato il pdf: Daniele De Michele

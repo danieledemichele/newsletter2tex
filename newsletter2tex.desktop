@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Newsletter Ubuntu-it
+GenericName=Convertitore wiki → LaTeX
+Comment=Converte la newsletter dal wiki in .tex e PDF
+Exec=newsletter2tex --gui
+Icon=newsletter2tex
+StartupWMClass=Newsletter2tex
+Terminal=false
+Categories=Office;Publishing;
+Keywords=newsletter;ubuntu;latex;pdf;wiki;
