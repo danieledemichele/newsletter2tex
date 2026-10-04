@@ -369,5 +369,48 @@ class TestNotifiche(unittest.TestCase):
         self.assertEqual(inviate, [])
 
 
+class TestLogSistema(unittest.TestCase):
+    def setUp(self):
+        import logging
+        self.cartella = tempfile.TemporaryDirectory()
+        self.ambiente = mock.patch.dict(os.environ, {"XDG_STATE_HOME": self.cartella.name})
+        self.ambiente.start()
+        for h in [h for h in N.registro.handlers if isinstance(h, logging.FileHandler)]:
+            N.registro.removeHandler(h)
+        self.gancio = sys.excepthook
+
+    def tearDown(self):
+        import logging
+        for h in [h for h in N.registro.handlers if isinstance(h, logging.FileHandler)]:
+            h.close()
+            N.registro.removeHandler(h)
+        sys.excepthook = self.gancio
+        self.ambiente.stop()
+        self.cartella.cleanup()
+
+    def test_avvio_ed_errori_registrati(self):
+        percorso = N.avvia_registro("prova")
+        self.assertTrue(percorso.startswith(self.cartella.name))
+        try:
+            raise ValueError("errore di prova")
+        except ValueError:
+            with mock.patch("sys.stderr", io.StringIO()):
+                sys.excepthook(*sys.exc_info())
+        N.registro.warning("avviso di prova")
+        testo = leggi(percorso)
+        self.assertIn(f"Avvio di newsletter2tex {N.VERSIONE} (prova)", testo)
+        self.assertIn("CRITICAL Errore non gestito", testo)
+        self.assertIn("ValueError: errore di prova", testo)
+        self.assertIn("WARNING  avviso di prova", testo)
+        self.assertTrue(any("avviso di prova" in r for r in N.coda_log_sistema(5)))
+
+    def test_conversione_registrata(self):
+        percorso = N.avvia_registro("prova")
+        with tempfile.TemporaryDirectory() as d:
+            N.esegui(file=ESEMPIO, output=os.path.join(d, "{anno}"), cfg=dict(CFG),
+                     avanzamento=lambda m: None, verifica_statistiche=False)
+        self.assertIn("Convertito 2025.011", leggi(percorso))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ casa = tempfile.mkdtemp()
 os.environ["HOME"] = casa
 os.environ["XDG_CONFIG_HOME"] = os.path.join(casa, ".config")
 os.environ["XDG_CACHE_HOME"] = os.path.join(casa, ".cache")
+os.environ["XDG_STATE_HOME"] = os.path.join(casa, ".local", "state")
 os.makedirs(os.path.join(casa, ".config", "newsletter2tex"))
 os.makedirs(os.path.join(casa, "2025"))          # cartella dell'anno della prova
 with open(os.path.join(casa, ".config", "newsletter2tex", "config.json"), "w") as f:
@@ -30,6 +31,8 @@ with open(os.path.join(casa, ".config", "newsletter2tex", "config.json"), "w") a
 import newsletter2tex as N  # noqa: E402
 
 TESTO = open(os.path.join(RADICE, "esempi", "NewsletterItaliana_2025.011.txt"), encoding="utf-8").read()
+N.avvia_registro("prova dell'interfaccia")
+N.versione_remota = lambda: N.VERSIONE
 N.trova_ultimo_numero = lambda log: (2025, 11, TESTO)
 
 errori = []
@@ -134,6 +137,13 @@ def antibot(root, c):
 
 
 N.avvia_gui(prova)
+log_sistema = open(N.file_log_sistema(), encoding="utf-8").read()
+controlla("Avvio di newsletter2tex" in log_sistema and "Cambio di tema: scuro" in log_sistema
+          and "Anti-bot: trovato" in log_sistema, "il log di sistema registra avvio, cambio di tema e anti-bot")
+# gli errori di pdflatex dipendono dai pacchetti LaTeX installati, non dal programma
+inattesi = [r for r in log_sistema.splitlines() if (" ERROR " in r or " CRITICAL " in r)
+            and "pdflatex" not in r and "Compilazione PDF" not in r]
+controlla(not inattesi, "nessun errore inatteso nel log di sistema" + ("".join("\n  " + r for r in inattesi)))
 for p in passi:
     print(p)
 for e in errori:

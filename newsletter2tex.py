@@ -32,6 +32,11 @@ GARANZIA. Vedi il file LICENSE per i dettagli.
 import argparse
 import base64
 import json
+import logging
+import logging.handlers
+import platform
+import threading
+import traceback
 import datetime as dt
 import os
 import re
@@ -429,7 +434,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.2.0"
+VERSIONE = "1.3.0"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -549,17 +554,20 @@ def scarica_raw(pagina, tentativi=2):
             if e.code == 404:
                 return None
             if e.code in (401, 403, 429, 503):
+                registro.warning("Il wiki ha rifiutato %s (HTTP %s)", pagina, e.code)
                 raise WikiBloccato(f"HTTP {e.code} su {url}")
             raise
         except (OSError, urllib.error.URLError) as e:
             if not _e_timeout(e):
                 raise
+            registro.warning("Il wiki non risponde (%s, tentativo %d di %d)", pagina, tentativo, tentativi)
             if tentativo == tentativi:
                 raise RuntimeError(f"Il wiki non risponde: {pagina} non è arrivata dopo {tentativi} "
                                    f"tentativi. Riprova tra qualche minuto oppure usa «File .txt».")
     inizio = testo.lstrip()[:600].lower()
     if inizio.startswith("<!doctype") or inizio.startswith("<html"):
         if "anubis" in testo.lower() or "oh noes" in testo.lower() or "not a bot" in testo.lower():
+            registro.warning("Protezione anti-bot del wiki su %s", pagina)
             raise WikiBloccato(f"protezione anti-bot del wiki su {url}")
         return None   # pagina HTML generica: la trattiamo come inesistente
     return testo
@@ -1841,6 +1849,11 @@ def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
         if percorso_pdf:
             avanzamento(f"Creato: {percorso_pdf}")
 
+    registro.info("Convertito %s.%03d → %s (%s)%s", dati["anno"], dati["numero"], percorso_tex, log.riepilogo(),
+                  " · PDF creato" if percorso_pdf else (" · PDF NON creato" if pdf else ""))
+    for livello, _, msg in log.voci:
+        if livello == "ERRORE" and msg.startswith(("pdflatex", "Compilazione PDF")):
+            registro.error("%s.%03d: %s", dati["anno"], dati["numero"], msg)
     percorso_log = os.path.join(cartella, base + ".conversione.log")
     log.scrivi(percorso_log,
                f"Conversione Newsletter Ubuntu-it {dati['numero']:03d}.{dati['anno']}\n"
@@ -1861,6 +1874,75 @@ MSG_BLOCCATO = ("Il wiki ha rifiutato il download automatico ({e}).\n\n"
 # ---------------------------------------------------------------------------
 # GUI (tkinter)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# LOG DI SISTEMA
+# ---------------------------------------------------------------------------
+# Ogni avvio scrive in ~/.local/state/newsletter2tex/newsletter2tex.log cosa succede e,
+# soprattutto, ogni errore con i dettagli tecnici. Il file ruota da solo (4 file da 1 MB).
+
+registro = logging.getLogger("newsletter2tex")
+registro.addHandler(logging.NullHandler())
+
+
+def file_log_sistema():
+    cartella = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+                            "newsletter2tex")
+    return os.path.join(cartella, "newsletter2tex.log")
+
+
+def avvia_registro(modalita):
+    "Apre il log di sistema e registra le informazioni sull'avvio. Non fallisce mai."
+    if any(isinstance(h, logging.FileHandler) for h in registro.handlers):
+        return file_log_sistema()
+    percorso = file_log_sistema()
+    try:
+        os.makedirs(os.path.dirname(percorso), exist_ok=True)
+        gestore = logging.handlers.RotatingFileHandler(percorso, maxBytes=1_000_000, backupCount=3,
+                                                       encoding="utf-8")
+    except OSError:
+        return None
+    gestore.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    registro.addHandler(gestore)
+    registro.setLevel(logging.INFO)
+    registro.info("=" * 70)
+    registro.info("Avvio di newsletter2tex %s (%s)", VERSIONE, modalita)
+    registro.info("Python %s · %s", platform.python_version(), platform.platform())
+    registro.info("Programma: %s%s", os.path.realpath(sys.argv[0]),
+                  " (copia installata)" if programma_installato() else "")
+    try:
+        cfg = carica_config()
+        registro.info("Impostazioni: cartella %s · tema %s · avvisi %s · aggiornamenti automatici %s",
+                      cfg.get("cartella_lavoro"), cfg.get("tema") or "come Ubuntu",
+                      "sì" if cfg.get("notifiche", True) else "no",
+                      "sì" if cfg.get("aggiornamenti_automatici", True) else "no")
+    except Exception:
+        registro.exception("Impostazioni illeggibili")
+
+    gancio_originale = sys.excepthook
+
+    def gancio(tipo, valore, tb):
+        if not issubclass(tipo, KeyboardInterrupt):
+            registro.critical("Errore non gestito:\n%s", "".join(traceback.format_exception(tipo, valore, tb)))
+        gancio_originale(tipo, valore, tb)
+    sys.excepthook = gancio
+
+    if hasattr(threading, "excepthook"):
+        def gancio_thread(argomenti):
+            registro.critical("Errore non gestito nel thread %s:\n%s", getattr(argomenti.thread, "name", "?"),
+                              "".join(traceback.format_exception(argomenti.exc_type, argomenti.exc_value,
+                                                                 argomenti.exc_traceback)))
+        threading.excepthook = gancio_thread
+    return percorso
+
+
+def coda_log_sistema(righe=40):
+    try:
+        with open(file_log_sistema(), encoding="utf-8", errors="replace") as f:
+            return f.readlines()[-righe:]
+    except OSError:
+        return []
+
 
 # ---------------------------------------------------------------------------
 # AGGIORNAMENTI DA GITHUB
@@ -1914,6 +1996,7 @@ def aggiorna_programma(destinazione=PERCORSO_INSTALLATO):
         raise RuntimeError(f"Il file scaricato contiene un errore ({e}): aggiornamento annullato")
     if versione_tupla(m.group(1)) <= versione_tupla(VERSIONE):
         return None
+    registro.info("Aggiornamento: installo la versione %s in %s", m.group(1), destinazione)
     temporaneo = destinazione + ".nuovo"
     with open(temporaneo, "wb") as f:
         f.write(codice)
@@ -2045,7 +2128,9 @@ def imposta_notifiche(attive, script=PERCORSO_INSTALLATO):
         codice, _ = _systemctl("start", NOME_UNITA + ".timer")
         if codice:      # es. installazione da SSH, senza sessione: partirà al prossimo accesso
             return "Avviso dei nuovi numeri abilitato: sarà attivo dal prossimo accesso al desktop"
+        registro.info("Avviso dei nuovi numeri attivato")
         return "Avviso dei nuovi numeri attivo: controllo il lunedì sera e il martedì"
+    registro.info("Avviso dei nuovi numeri disattivato")
     _systemctl("disable", "--now", NOME_UNITA + ".timer")
     for percorso in (servizio_p, timer_p):
         if os.path.exists(percorso):
@@ -2091,8 +2176,11 @@ def notifica_nuovi_numeri():
     cfg = carica_config()
     try:
         n = controlla_novita(cfg)
-    except Exception:
-        return False                       # wiki irraggiungibile: si riproverà al prossimo orario
+    except Exception as e:
+        registro.warning("Controllo programmato: wiki non raggiungibile (%s)", e)
+        return False                       # si riproverà al prossimo orario
+    registro.info("Controllo programmato: ultimo numero %s.%03d, da convertire %s", n.get("anno"),
+                  n.get("numero") or 0, n.get("mancanti") or "nessuno")
     if not n["mancanti"]:
         return False
     chiave = f"{n['anno']}.{n['numero']:03d}"
@@ -2110,6 +2198,7 @@ def notifica_nuovi_numeri():
     articoli = len(n["anteprima"]["articoli"])
     testo = (f"{n['anteprima']['settimana'].capitalize()} · {articoli} articoli.\n"
              "Apri Newsletter Ubuntu-it per convertirlo.")
+    registro.info("Notifica inviata per il numero %s", chiave)
     scelta = invia_notifica(f"È uscito il numero {n['numero']:03d}/{n['anno']}", testo, azione="Apri")
     if scelta == "apri":
         subprocess.Popen([sys.executable, os.path.realpath(sys.argv[0]), "--gui"], start_new_session=True,
@@ -2194,6 +2283,19 @@ def avvia_gui(prova=None):
     root.geometry(f"1100x{min(800, root.winfo_screenheight() - 80)}")
     root._icone = [tk.PhotoImage(data=base64.b64encode(icona_png(g)).decode()) for g in (True, False)]
     root.iconphoto(True, *root._icone)
+    registro.info("Interfaccia grafica: Tk %s, schermo %sx%s", root.tk.call("info", "patchlevel"),
+                  root.winfo_screenwidth(), root.winfo_screenheight())
+
+    def errore_interfaccia(tipo, valore, tb):
+        # ogni errore nell'interfaccia finisce nel log di sistema (oltre che nel terminale)
+        registro.error("Errore nell'interfaccia:\n%s", "".join(traceback.format_exception(tipo, valore, tb)))
+        traceback.print_exception(tipo, valore, tb)
+    root.report_callback_exception = errore_interfaccia
+
+    def chiudi():
+        registro.info("Chiusura della finestra")
+        root.destroy()
+    root.protocol("WM_DELETE_WINDOW", chiudi)
     _finestra(root, prova, None)
     root.mainloop()
 
@@ -3377,6 +3479,12 @@ def _finestra(root, prova=None, stato=None):
     i_aggiorna.grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 0))
     tk.Label(griglia, text="Le impostazioni vengono salvate a ogni conversione.", bg=SCHEDA, fg=TENUE,
              font=F["piccolo"]).grid(row=9, column=0, columnspan=2, sticky="w", pady=(8, 0))
+    link_log = tk.Label(griglia, text="Apri il log di sistema", bg=SCHEDA, fg=ARANCIO, font=F["bottone"],
+                        cursor="hand2")
+    link_log.grid(row=10, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    link_log.bind("<Button-1>", lambda e: apri_nel_browser(file_log_sistema())
+                  if os.path.exists(file_log_sistema()) else None)
+    con_suggerimento(link_log, lambda: file_log_sistema().replace(casa, "~"))
 
     def cambia_notifiche():
         attive = v_notifiche.get()
@@ -3648,6 +3756,8 @@ def _finestra(root, prova=None, stato=None):
             if tipo == "ok":
                 novita["dati"] = dato
                 num = f"{dato['numero']:03d}/{dato['anno']}"
+                registro.info("Controllo del wiki: ultimo numero %s, da convertire %s", num,
+                              dato["mancanti"] or "nessuno")
                 if dato["mancanti"]:
                     colore_pallino(ARANCIO)
                     n = len(dato["mancanti"])
@@ -3670,6 +3780,7 @@ def _finestra(root, prova=None, stato=None):
                     novita["segnalati"].add(dato["numero"])
                     mostra_novita(dato)
             else:
+                registro.warning("Controllo del wiki non riuscito (%s): %s", tipo, dato)
                 novita["dati"] = None
                 colore_pallino(ROSSO)
                 v_wiki.set("Impossibile controllare il wiki")
@@ -3773,6 +3884,8 @@ def _finestra(root, prova=None, stato=None):
                 break
             try:
                 coda.put(("inizio", etichetta_n))
+                registro.info("Conversione avviata: %s", {k: v for k, v in parametri.items()
+                                                          if k in ("numero", "file", "pdf")} or "testo già scaricato")
                 r = esegui(avanzamento=lambda m: coda.put(("stato", m)), **parametri)
                 if r.get("pdf"):
                     r["miniatura"] = miniatura_pdf(r["pdf"])
@@ -3782,9 +3895,12 @@ def _finestra(root, prova=None, stato=None):
                                        "resto": lista_parametri[indice + 1:]}))
                 break
             except (Errore, RuntimeError, OSError, urllib.error.URLError) as e:
+                registro.error("Conversione non riuscita (%s): %s", etichetta_n or parametri.get("numero")
+                               or parametri.get("file") or "testo già scaricato", e)
                 coda.put(("errore", f"{etichetta_n}: {e}" if etichetta_n else str(e)))
             except Exception as e:  # imprevisto: lo mostriamo comunque
-                coda.put(("errore", f"{type(e).__name__}: {e}"))
+                registro.exception("Errore imprevisto durante la conversione")
+                coda.put(("errore", f"{type(e).__name__}: {e} (dettagli nel log di sistema)"))
         coda.put(("fine", None))
 
     def mostra_gettoni(errori, avvisi, refusi=0, mostra_ok=True):
@@ -3854,11 +3970,13 @@ def _finestra(root, prova=None, stato=None):
                     fine_lavoro()
                     barra.ferma(AMBRA)
                     v_stato.set(f"In attesa del numero {num_b:03d}/{anno_b} dal browser…")
+                    registro.warning("Anti-bot: attendo dal browser il numero %s.%03d", anno_b, num_b)
                     scrivi(f"Il wiki ha bloccato il download di {anno_b}.{num_b:03d}: apro la pagina nel "
                            "browser e attendo il file in Scaricati.", "AVVISO")
                     resto = dato["resto"]
 
                     def riprendi(percorso, etichetta_b=etichetta_b, resto=resto):
+                        registro.info("Anti-bot: %s", f"trovato {percorso}" if percorso else "annullato")
                         if not percorso:
                             esito_barra["colore"] = AMBRA
                             v_stato.set("Conversione annullata.")
@@ -3907,6 +4025,7 @@ def _finestra(root, prova=None, stato=None):
         b_converti.stato(True)
 
     def interrompi():
+        registro.info("Conversione interrotta dall'utente")
         if lavoro_attivo["stop"]:
             lavoro_attivo["stop"].set()
         fine_lavoro()
@@ -4071,6 +4190,7 @@ def _finestra(root, prova=None, stato=None):
 
     # --- aggiornamenti da GitHub -------------------------------------------------------
     def riavvia_programma():
+        registro.info("Riavvio del programma dopo l'aggiornamento")
         try:
             root.destroy()
         finally:
@@ -4089,6 +4209,7 @@ def _finestra(root, prova=None, stato=None):
                 else:
                     coda_a.put(("disponibile", remota))
             except Exception as e:      # senza rete o GitHub irraggiungibile: nessun disturbo
+                registro.warning("Controllo degli aggiornamenti non riuscito: %s", e)
                 coda_a.put(("errore", str(e)))
 
         threading.Thread(target=lavora, daemon=True).start()
@@ -4101,6 +4222,9 @@ def _finestra(root, prova=None, stato=None):
             except queue.Empty:
                 root.after(500, attendi)
                 return
+            if tipo in ("aggiornato", "disponibile"):
+                registro.info("Aggiornamenti: versione %s %s", dato,
+                              "installata" if tipo == "aggiornato" else "disponibile")
             if tipo == "aggiornato":
                 conto = {"s": 5, "attivo": True}
 
@@ -4299,6 +4423,7 @@ def _finestra(root, prova=None, stato=None):
                            PALETTE[tema]["AMBRA"]: "AMBRA"}[st["barra"]]
         st["segnalati"] = sorted(novita["segnalati"])
         suggerimento.nascondi()
+        registro.info("Cambio di tema: %s", nuovo)
         transizione(PALETTE[nuovo]["SFONDO"], lambda: _finestra(root, prova, st))
 
     def transizione(colore, azione):
@@ -4427,6 +4552,7 @@ def main():
     g.add_argument("--notifiche", choices=("on", "off", "auto", "stato"),
                    help="avviso dei nuovi numeri il lunedì sera e il martedì (timer di systemd)")
     g.add_argument("--notifica", action="store_true", help=argparse.SUPPRESS)
+    g.add_argument("--log", action="store_true", help="mostra dove si trova il log di sistema e le ultime righe")
     g.add_argument("--statistiche", action="store_true",
                    help="legge da Launchpad i bug aperti, critici e nuovi e stampa le righe per il wiki")
     g.add_argument("--controlla", action="store_true",
@@ -4442,6 +4568,14 @@ def main():
     ap.add_argument("--versione", action="version",
                     version=f"newsletter2tex {VERSIONE} · Design {DESIGN}")
     args = ap.parse_args()
+
+    if args.log:
+        print(f"Log di sistema: {file_log_sistema()}\n")
+        print("".join(coda_log_sistema(40)) or "(ancora vuoto)")
+        return
+    modalita = ("interfaccia grafica" if args.gui else "controllo programmato" if args.notifica else
+                "terminale: " + " ".join(sys.argv[1:]) if sys.argv[1:] else "terminale")
+    avvia_registro(modalita)
 
     if args.gui:
         avvia_gui()
@@ -4508,6 +4642,7 @@ def main():
               file=sys.stderr)
         codice = 2
     except (Errore, RuntimeError, OSError, urllib.error.URLError) as e:
+        registro.error("Errore da terminale: %s", e)
         print(f"\nErrore: {e}", file=sys.stderr)
         codice = 2
 

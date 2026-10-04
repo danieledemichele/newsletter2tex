@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.2.0-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.3.0-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -29,6 +29,7 @@ Ogni settimana gli articoli della newsletter vengono scritti sul wiki e poi impa
 - **Ti avvisa quando esce un nuovo numero** con una notifica sul desktop, il lunedì sera e il martedì, anche a programma chiuso.
 - **Si aggiorna da solo** da GitHub all'avvio.
 - **Legge le statistiche dei bug da Launchpad**, calcola le differenze con la settimana precedente e controlla che i numeri scritti nel `.txt` tornino.
+- **Tiene un log di sistema**: ogni avvio, ogni conversione e soprattutto ogni errore vengono registrati in un file, così quando qualcosa non va basta guardare lì.
 - **Funziona sia con l'interfaccia grafica sia da terminale.** È un unico file Python, senza dipendenze esterne.
 
 ## Installazione
@@ -44,7 +45,7 @@ sh installa.sh
 
 `installa.sh` copia il programma in `~/.local/bin/newsletter2tex`, aggiunge **Newsletter Ubuntu-it** al menu delle applicazioni con la sua icona, attiva l'avviso dei nuovi numeri e segnala eventuali pacchetti mancanti.
 
-Dalla versione 1.2.0 il programma **si aggiorna da solo**. A ogni avvio controlla su GitHub se c'è una versione più recente; se c'è, la scarica, verifica che il file sia integro, sostituisce la copia installata e si riavvia dopo qualche secondo. Se stai convertendo, aspetta che tu abbia finito. Con «Più tardi» la nuova versione verrà usata al prossimo avvio. L'aggiornamento automatico si può spegnere nelle impostazioni personali; da terminale si aggiorna con `newsletter2tex --aggiorna`.
+Dalla versione 1.2.0 il programma **si aggiorna da solo**. A ogni avvio controlla su GitHub se c'è una versione più recente; se c'è, la scarica, verifica che il file sia integro, sostituisce la copia installata e si riavvia dopo qualche secondo. Se stai convertendo, il riavvio aspetta la fine del lavoro; con «Più tardi» la nuova versione verrà usata al prossimo avvio. L'aggiornamento automatico si può spegnere nelle impostazioni personali; da terminale si aggiorna con `newsletter2tex --aggiorna`.
 
 Per controllare quale versione è installata:
 
@@ -79,7 +80,7 @@ newsletter2tex --gui
   - i file `.txt` più recenti in alto, con l'ultimo già selezionato.
 
   Scorciatoie: `Ctrl+L` per scrivere un percorso, `Ctrl+H` per i file nascosti, `Backspace` per salire di una cartella.
-- **Impostazioni personali**: il nome per "A cura di", chi realizza il PDF e i collaboratori predefiniti all'edizione. Vengono salvate in `~/.config/newsletter2tex/config.json` e valgono anche da terminale, così ogni collaboratore inserisce i propri dati una sola volta.
+- **Impostazioni personali**: il nome per "A cura di", chi realizza il PDF, i collaboratori predefiniti all'edizione e gli interruttori per l'avviso dei nuovi numeri e gli aggiornamenti automatici. In fondo c'è il collegamento **Apri il log di sistema**. Le impostazioni vengono salvate in `~/.config/newsletter2tex/config.json` e valgono anche da terminale, così ogni collaboratore inserisce i propri dati una sola volta.
 - **Risultato**:
   - errori, avvisi e refusi raggruppati per riga;
   - le etichette colorate in alto funzionano da filtro: cliccandole si nascondono o si mostrano errori, avvisi o refusi;
@@ -124,6 +125,7 @@ newsletter2tex --controlla              # c'è un numero nuovo da convertire?
 newsletter2tex --statistiche            # righe per il wiki con i bug da Launchpad
 newsletter2tex --aggiorna               # aggiorna il programma da GitHub
 newsletter2tex --notifiche on|off|stato # avviso dei nuovi numeri
+newsletter2tex --log                    # dove si trova il log di sistema e le ultime righe
 newsletter2tex                          # scarica e converte l'ultimo numero
 newsletter2tex -n 2026.031              # scarica e converte un numero preciso
 newsletter2tex -f vecchio.txt           # converte un file .txt già salvato
@@ -197,9 +199,32 @@ Ogni conversione produce `Newsletter Ubuntu-it NNN.AAAA.conversione.log`, con i 
 
 Da terminale: apri `https://wiki.ubuntu-it.org/NewsletterItaliana/AAAA.NNN?action=raw` nel browser, salva la pagina e usa `newsletter2tex -f file.txt`.
 
+## Se qualcosa non funziona: il log di sistema
+
+Ogni volta che il programma si apre, dalla finestra, da terminale o dal controllo programmato del lunedì e martedì, scrive cosa succede in:
+
+```
+~/.local/state/newsletter2tex/newsletter2tex.log
+```
+
+Ci finiscono:
+- **all'avvio**: versione del programma, di Python e di Tk, sistema operativo, percorso del programma e impostazioni principali;
+- **durante l'uso**: controlli del wiki, conversioni con il riepilogo di errori, avvisi e refusi, blocchi anti-bot, aggiornamenti, cambi di tema, interruzioni e chiusura della finestra;
+- **gli errori**, con tutti i dettagli tecnici (traceback): problemi di rete, errori di pdflatex, ma anche errori imprevisti dell'interfaccia o delle operazioni in sottofondo, che altrimenti si vedrebbero solo nel terminale.
+
+Per leggerlo:
+- dalla finestra: **Impostazioni personali → Apri il log di sistema**;
+- da terminale: `newsletter2tex --log` mostra il percorso e le ultime 40 righe.
+
+Il file non cresce all'infinito: superato 1 MB ricomincia, tenendo le tre versioni precedenti (`newsletter2tex.log.1`, `.2`, `.3`).
+
+Se segnali un problema, apri una [issue su GitHub](https://github.com/danieledemichele/newsletter2tex/issues) e allega le ultime righe del log.
+
+Il log di sistema riguarda il programma. Il log di conversione (`… .conversione.log`, descritto sopra) riguarda invece il testo di un singolo numero.
+
 ## Test
 
-A ogni modifica GitHub Actions riconverte il numero di esempio e controlla che il risultato non cambi senza volerlo. Verifica anche conversione, crediti, date, controlli del log e statistiche, e compila davvero il PDF con LaTeX. Per eseguire i test in locale:
+A ogni modifica GitHub Actions riconverte il numero di esempio e controlla che il risultato non cambi senza volerlo. Verifica anche conversione, crediti, date, controlli del log, statistiche, aggiornamenti, notifiche e log di sistema, compila davvero il PDF con LaTeX e prova l'interfaccia grafica su uno schermo virtuale. Per eseguire i test in locale:
 
 ```bash
 python3 -m unittest discover -s tests -v    # test della conversione
@@ -230,6 +255,10 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.3.0**
+- Log di sistema in `~/.local/state/newsletter2tex/newsletter2tex.log`: avvio, operazioni ed errori con i dettagli tecnici, compresi quelli dell'interfaccia e delle operazioni in sottofondo.
+- Collegamento «Apri il log di sistema» nelle impostazioni personali e comando `newsletter2tex --log`.
 
 **1.2.0**
 - Il cambio giorno/notte avviene nella stessa finestra, con una dissolvenza, senza chiuderla e riaprirla.
