@@ -60,6 +60,7 @@ CONFIG_PREDEFINITA = {
     "realizzato_pdf": [["dd3my", "Daniele De Michele"]],    # "Ha realizzato il pdf"
     # Usati solo se il .txt non contiene "Ha inoltre collaborato all'edizione:"
     "edizione_predefinita": [],
+    "tema": "",                                             # "chiaro", "scuro" o "" = come Ubuntu
 }
 CONFIG_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                            "newsletter2tex", "config.json")
@@ -424,7 +425,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.0.0"
+VERSIONE = "1.1.0"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -593,6 +594,145 @@ def trova_ultimo_numero(log):
     num = basso
     testo = cache.get((anno, num)) or scarica_raw(f"{PAGINA_NEWSLETTER}/{anno}.{num:03d}")
     return anno, num, testo
+
+
+# ---------------------------------------------------------------------------
+# STATISTICHE DEI BUG (Launchpad)
+# ---------------------------------------------------------------------------
+
+LAUNCHPAD_API = "https://api.launchpad.net/devel/ubuntu"
+STATI_APERTI = ("New", "Incomplete", "Confirmed", "Triaged", "In Progress", "Fix Committed")
+VOCI_STATISTICHE = (("aperti", "Aperti"), ("critici", "Critici"), ("nuovi", "Nuovi"))
+RE_STATISTICA = re.compile(r"^\s*\*\s*(Aperti|Critici|Nuovi)\s*:\s*([\d.]+)\s*,\s*'*\s*([+\-−–]?\s*[\d.]+)\s*'*",
+                           re.I | re.M)
+
+
+def _intero(testo):
+    return int(testo.replace(".", "").replace(" ", "").replace("−", "-").replace("–", "-"))
+
+
+def leggi_statistiche(testo):
+    """Valori della sezione 'Bug riportati' di un numero: {'aperti': (valore, differenza), ...}"""
+    stat = {}
+    for nome, valore, diff in RE_STATISTICA.findall(testo or ""):
+        stat[nome.lower()] = (_intero(valore), _intero(diff))
+    return stat
+
+
+def conteggio_launchpad(parametri, timeout=90, tentativi=2):
+    """Numero di bug task di Ubuntu che soddisfano i parametri di searchTasks."""
+    url = (LAUNCHPAD_API + "?ws.op=searchTasks&ws.show=total_size&"
+           + urllib.parse.urlencode(parametri, doseq=True))
+    ultimo = None
+    for _ in range(tentativi):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                                       "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return int(r.read().decode().strip().strip('"'))
+        except (OSError, ValueError, urllib.error.URLError) as e:
+            ultimo = e
+    raise RuntimeError(f"Launchpad non risponde ({getattr(ultimo, 'reason', ultimo)})")
+
+
+def statistiche_launchpad(avanzamento=lambda m: None):
+    """Aperti, critici e nuovi da Launchpad. Il totale degli aperti è una richiesta
+    pesante: se va in timeout si sommano i singoli stati aperti."""
+    avanzamento("Bug critici…")
+    critici = conteggio_launchpad({"importance": "Critical"})
+    avanzamento("Bug nuovi…")
+    nuovi = conteggio_launchpad({"status": "New"})
+    avanzamento("Bug aperti (può richiedere un minuto)…")
+    try:
+        aperti = conteggio_launchpad({}, timeout=120, tentativi=1)
+    except RuntimeError:
+        aperti = nuovi
+        for stato in STATI_APERTI[1:]:
+            avanzamento(f"Bug aperti: stato «{stato}»…")
+            aperti += conteggio_launchpad({"status": stato}, timeout=120)
+    return {"aperti": aperti, "critici": critici, "nuovi": nuovi}
+
+
+def formatta_differenza(d):
+    return f"+{d}" if d > 0 else ("−" + str(-d) if d < 0 else "0")
+
+
+def blocco_statistiche(valori, precedenti=None):
+    """Righe wiki pronte da incollare nella sezione 'Bug riportati'."""
+    righe = []
+    for chiave, nome in VOCI_STATISTICHE:
+        v = valori[chiave]
+        d = v - precedenti[chiave] if precedenti and chiave in precedenti else None
+        diff = formatta_differenza(d) if d is not None else "???"
+        q = "'" * 3
+        righe.append(f" * {nome}: {v}, {q}{diff}{q} rispetto alla scorsa settimana.")
+    return "\n".join(righe)
+
+
+def controlla_statistiche(testo, precedente, num_precedente, log):
+    """Controlla che le differenze scritte nel .txt tornino con il numero precedente."""
+    attuali = leggi_statistiche(testo)
+    if not attuali:
+        log.avviso("Statistiche dei bug non trovate (righe « * Aperti: valore, differenza …»)")
+        return
+    for chiave, nome in VOCI_STATISTICHE:
+        if chiave not in attuali:
+            log.avviso(f"Statistiche dei bug: manca la riga «{nome}»")
+    if not precedente:
+        log.info("Statistiche dei bug: numero precedente non disponibile, differenze non verificate")
+        return
+    prec = leggi_statistiche(precedente)
+    if not prec:
+        log.info(f"Statistiche dei bug: nel numero {num_precedente} non ci sono valori da confrontare")
+        return
+    if all(attuali.get(k, (None,))[0] == prec.get(k, (None,))[0] for k, _ in VOCI_STATISTICHE):
+        log.avviso(f"Statistiche dei bug identiche al numero {num_precedente}: forse non sono state aggiornate")
+    for chiave, nome in VOCI_STATISTICHE:
+        if chiave in attuali and chiave in prec:
+            valore, scritta = attuali[chiave]
+            attesa = valore - prec[chiave][0]
+            if attesa != scritta:
+                log.errore(f"Statistiche dei bug, «{nome}»: scritto {formatta_differenza(scritta)}, ma "
+                           f"{valore} − {prec[chiave][0]} (numero {num_precedente}) = "
+                           f"{formatta_differenza(attesa)}")
+    log.info("Statistiche dei bug confrontate con il numero " + num_precedente)
+
+
+def testo_numero_precedente(cfg, anno, num):
+    """Testo del numero precedente: prima dalla copia locale, poi dal wiki."""
+    if num <= 1:
+        return None, None
+    prec = num - 1
+    etichetta = f"{anno}.{prec:03d}"
+    locale = os.path.join(os.path.dirname(percorso_tex(cfg, anno, prec)),
+                          f"NewsletterItaliana_{etichetta}.txt")
+    if os.path.exists(locale):
+        with open(locale, encoding="utf-8", errors="replace") as f:
+            return f.read(), etichetta
+    try:
+        testo = scarica_raw(f"{PAGINA_NEWSLETTER}/{etichetta}")
+        return (testo if e_un_numero(testo) else None), etichetta
+    except Exception:
+        return None, etichetta
+
+
+def riferimento_statistiche(cfg, anno=None):
+    """Valori del numero più recente convertito in locale: ({chiave: valore}, 'AAAA.NNN')."""
+    anno = anno or dt.date.today().year
+    for a in (anno, anno - 1):
+        cartella = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(a)))
+        try:
+            numeri = sorted((int(n) for n in os.listdir(cartella) if re.fullmatch(r"\d{3}", n)), reverse=True)
+        except OSError:
+            continue
+        for n in numeri:
+            txt = os.path.join(cartella, f"{n:03d}", f"NewsletterItaliana_{a}.{n:03d}.txt")
+            if os.path.exists(txt):
+                with open(txt, encoding="utf-8", errors="replace") as f:
+                    stat = leggi_statistiche(f.read())
+                if stat:
+                    return {k: v[0] for k, v in stat.items()}, f"{a}.{n:03d}"
+    return None
 
 
 def percorso_tex(cfg, anno, num):
@@ -1246,10 +1386,10 @@ PREAMBOLO = r"""\documentclass[a4paper,twoside]{article}
 \pdfbookmark[0]{Colophon}{colophon}
 \thispagestyle{empty}
 \section*{Licenza}
-Il presente documento e il suo contenuto è distribuito con licenza \textbf{Creative Commons 4.0 di tipo “Attribuzione - Condividi allo stesso modo”}. \'E possibile, riprodurre, distribuire, comunicare al pubblico, esporre al pubblico, rappresentare, eseguire o recitare il presente documento alle seguenti condizioni:
+Il presente documento e il suo contenuto è distribuito con licenza \textbf{Creative Commons 4.0 di tipo “Attribuzione - Condividi allo stesso modo”}. È possibile riprodurre, distribuire, comunicare al pubblico, esporre al pubblico, rappresentare, eseguire o recitare il presente documento alle seguenti condizioni:
 
 \begin{itemize}
-\item \textbf{Attribuzione} - Devi riconoscere una menzione di paternit\'a adeguata, fornire un link alla licenza e indicare se sono state effettuate delle modifiche. Puoi fare ciò in qualsiasi maniera ragionevole possibile, ma con modalit\'a tali da suggerire che il licenziante avalli te o il tuo utilizzo del materiale.
+\item \textbf{Attribuzione} - Devi riconoscere una menzione di paternità adeguata, fornire un link alla licenza e indicare se sono state effettuate delle modifiche. Puoi fare ciò in qualsiasi maniera ragionevole possibile, ma non con modalità tali da suggerire che il licenziante avalli te o il tuo utilizzo del materiale.
 \item \textbf{Stessa Licenza} - Se remixi, trasformi il materiale o ti basi su di esso, devi distribuire i tuoi contributi con la stessa licenza del materiale originario.
 \item \textbf{Divieto di restrizioni aggiuntive} - Non puoi applicare termini legali o misure tecnologiche che impongano ad altri soggetti dei vincoli giuridici su quanto la licenza consente loro di fare.
 \end{itemize}
@@ -1358,7 +1498,7 @@ def blocco_persone(persone):
 # CONVERSIONE COMPLETA
 # ---------------------------------------------------------------------------
 
-def converti(testo, nome_file, log, cfg=None, edizione=None):
+def converti(testo, nome_file, log, cfg=None, edizione=None, precedente=None):
     cfg = cfg or carica_config()
     testo = testo.replace("\r\n", "\n").replace("\r", "\n")
     dati = leggi_intestazione(testo, nome_file, log)
@@ -1419,6 +1559,8 @@ def converti(testo, nome_file, log, cfg=None, edizione=None):
                     log.avviso(f"Fonte ripetuta (già alla riga {visti[url]}): {url}", nr)
                 visti.setdefault(url, nr)
     corpo = render_blocchi(blocchi, inline, log)
+    if precedente is not None:
+        controlla_statistiche(testo, precedente[0], precedente[1], log)
 
     crediti = leggi_crediti(righe[fine:], log)
     autori = crediti.get("redazione", [])
@@ -1576,7 +1718,7 @@ def leggi_persone(valori):
 
 
 def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
-           edizione=None, cfg=None, avanzamento=print, pronto=None):
+           edizione=None, cfg=None, avanzamento=print, pronto=None, verifica_statistiche=True):
     """Scarica/legge, converte, salva e (opzionale) compila.
     Ritorna un dizionario con percorsi, log e codice (0 ok, 1 errori nel log)."""
     cfg = cfg or carica_config()
@@ -1610,7 +1752,12 @@ def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
         scaricato = True
 
     avanzamento("Converto in LaTeX ...")
-    tex, dati = converti(testo, nome_file, log, cfg, edizione or None)
+    mi = re.search(r"Questo è il numero\s*'*\s*(\d+)\s*'*\s*del\s*'*\s*(\d{4})", testo)
+    precedente = None
+    if mi and verifica_statistiche:
+        prec_testo, prec_num = testo_numero_precedente(cfg, int(mi.group(2)), int(mi.group(1)))
+        precedente = (prec_testo, prec_num or "precedente")
+    tex, dati = converti(testo, nome_file, log, cfg, edizione or None, precedente)
     cartella = cartella_output(dati, output, cfg, log)
     base = f"Newsletter Ubuntu-it {dati['numero']:03d}.{dati['anno']}"
     percorso_tex = os.path.join(cartella, base + ".tex")
@@ -1650,7 +1797,81 @@ MSG_BLOCCATO = ("Il wiki ha rifiutato il download automatico ({e}).\n\n"
 # GUI (tkinter)
 # ---------------------------------------------------------------------------
 
+PALETTE = {
+    "chiaro": {
+        "SFONDO": "#F2F0EE", "LATERALE": "#EAE6E2", "SCHEDA": "#FFFFFF", "BORDO": "#E2DDD8",
+        "BORDO_FORTE": "#CFC8C2", "TESTO": "#2B2B2B", "TENUE": "#7A746F", "GRIGIO_CALDO": "#AEA79F",
+        "ARANCIO_HOVER": "#C7441A", "ARANCIO_TENUE": "#FBE3D9", "ARANCIO_SPENTO": "#F3B59E",
+        "PRIMARIO_SPENTO_TESTO": "#FFFFFF",
+        "HOVER": "#F7F3F0", "PIATTO_HOVER": "#E4DED9", "DISABILITATO": "#C2BBB5",
+        "TRACCIA": "#E6E0DB", "INTERRUTTORE_OFF": "#D6D0CB", "SEGMENTATO": "#ECE7E3",
+        "RIGA_PARI": "#FBFAF9", "CONSOLE": "#2C001E",
+        "ROSSO": "#E5484D", "ROSSO_TENUE": "#FDE7E7", "AMBRA": "#F5A524", "AMBRA_TESTO": "#9A6100",
+        "AMBRA_TENUE": "#FEF2DC", "VERDE": "#3FB950", "VERDE_TESTO": "#1F7A31", "VERDE_TENUE": "#E3F6E6",
+        "REFUSO_TESTO": "#77216F", "REFUSO_TENUE": "#F3E6F1",
+    },
+    "scuro": {
+        "SFONDO": "#1A1418", "LATERALE": "#1F181D", "SCHEDA": "#251D23", "BORDO": "#382C34",
+        "BORDO_FORTE": "#4D3F48", "TESTO": "#EEE8EC", "TENUE": "#A79AA3", "GRIGIO_CALDO": "#7C6F78",
+        "ARANCIO_HOVER": "#F26B3A", "ARANCIO_TENUE": "#4B2617", "ARANCIO_SPENTO": "#3F2620",
+        "PRIMARIO_SPENTO_TESTO": "#8E7A72",
+        "HOVER": "#2E242B", "PIATTO_HOVER": "#3A2E36", "DISABILITATO": "#6A5E66",
+        "TRACCIA": "#3A2E36", "INTERRUTTORE_OFF": "#4D3F48", "SEGMENTATO": "#2E242B",
+        "RIGA_PARI": "#2A2128", "CONSOLE": "#130C11",
+        "ROSSO": "#FF6B70", "ROSSO_TENUE": "#4A1C20", "AMBRA": "#F5A524", "AMBRA_TESTO": "#FFC266",
+        "AMBRA_TENUE": "#45330F", "VERDE": "#3FB950", "VERDE_TESTO": "#7EE787", "VERDE_TENUE": "#173A1F",
+        "REFUSO_TESTO": "#E59AD8", "REFUSO_TENUE": "#3D1D39",
+    },
+}
+
+
+def tema_di_sistema():
+    # "scuro" se Ubuntu/GNOME usa lo stile scuro, altrimenti "chiaro"
+    for chiave in ("color-scheme", "gtk-theme"):
+        try:
+            r = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", chiave],
+                               capture_output=True, text=True, timeout=3)
+            if "dark" in r.stdout.lower():
+                return "scuro"
+        except (OSError, subprocess.SubprocessError):
+            break
+    return "chiaro"
+
+
+def miniatura_pdf(pdf, larghezza=104):
+    # Copertina del PDF in PNG (con pdftoppm di poppler-utils) e numero di pagine
+    if not (pdf and os.path.exists(pdf) and shutil.which("pdftoppm")):
+        return None
+    cache = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "newsletter2tex")
+    os.makedirs(cache, exist_ok=True)
+    base = os.path.join(cache, "copertina")
+    try:
+        subprocess.run(["pdftoppm", "-png", "-singlefile", "-f", "1", "-l", "1",
+                        "-scale-to-x", str(larghezza), "-scale-to-y", "-1", pdf, base],
+                       capture_output=True, timeout=30, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pagine = None
+    if shutil.which("pdfinfo"):
+        try:
+            info = subprocess.run(["pdfinfo", pdf], capture_output=True, text=True, timeout=15).stdout
+            m = re.search(r"^Pages:\s+(\d+)", info, re.M)
+            pagine = int(m.group(1)) if m else None
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return {"png": base + ".png", "pagine": pagine, "dimensione": os.path.getsize(pdf)}
+
+
 def avvia_gui(prova=None):
+    # Il cambio di tema ricostruisce la finestra conservando lo stato
+    stato = None
+    while True:
+        stato = _finestra(prova, stato)
+        if not stato:
+            break
+
+
+def _finestra(prova=None, stato=None):
     try:
         import tkinter as tk
         import tkinter.font as tkfont
@@ -1660,36 +1881,47 @@ def avvia_gui(prova=None):
     import queue
     import threading
 
+    stato = stato or {}
+    riavvio = {"stato": None}
+    cfg = carica_config()
+    tema = stato.get("tema") or cfg.get("tema") or tema_di_sistema()
+    if tema not in PALETTE:
+        tema = "chiaro"
+    P = PALETTE[tema]
+
     # --- palette Ubuntu -----------------------------------------------------
     ARANCIO = "#E95420"
-    ARANCIO_HOVER = "#C7441A"
-    ARANCIO_TENUE = "#FBE3D9"
-    ARANCIO_SPENTO = "#F3B59E"
+    ARANCIO_HOVER = P["ARANCIO_HOVER"]
+    ARANCIO_TENUE = P["ARANCIO_TENUE"]
+    ARANCIO_SPENTO = P["ARANCIO_SPENTO"]
     MELANZANA_SCURA = "#2C001E"
     MELANZANA = "#5E2750"
     MELANZANA_VIVA = "#77216F"
-    SFONDO = "#F2F0EE"
-    LATERALE = "#EAE6E2"
-    SCHEDA = "#FFFFFF"
-    BORDO = "#E2DDD8"
-    BORDO_FORTE = "#CFC8C2"
-    TESTO = "#2B2B2B"
-    TENUE = "#7A746F"
-    GRIGIO_CALDO = "#AEA79F"
+    SFONDO = P["SFONDO"]
+    LATERALE = P["LATERALE"]
+    SCHEDA = P["SCHEDA"]
+    BORDO = P["BORDO"]
+    BORDO_FORTE = P["BORDO_FORTE"]
+    TESTO = P["TESTO"]
+    TENUE = P["TENUE"]
+    GRIGIO_CALDO = P["GRIGIO_CALDO"]
+    HOVER, PIATTO_HOVER, DISABILITATO = P["HOVER"], P["PIATTO_HOVER"], P["DISABILITATO"]
+    TRACCIA, INTERRUTTORE_OFF, SEGMENTATO = P["TRACCIA"], P["INTERRUTTORE_OFF"], P["SEGMENTATO"]
+    RIGA_PARI, CONSOLE = P["RIGA_PARI"], P["CONSOLE"]
     CONSOLE_TESTO = "#F1E6EE"
     CONSOLE_TENUE = "#B9A3B4"
-    ROSSO, ROSSO_TENUE = "#E5484D", "#FDE7E7"
-    AMBRA, AMBRA_TENUE = "#F5A524", "#FEF2DC"
-    VERDE, VERDE_TENUE = "#3FB950", "#E3F6E6"
+    ROSSO, ROSSO_TENUE = P["ROSSO"], P["ROSSO_TENUE"]
+    AMBRA, AMBRA_TESTO, AMBRA_TENUE = P["AMBRA"], P["AMBRA_TESTO"], P["AMBRA_TENUE"]
+    VERDE, VERDE_TESTO, VERDE_TENUE = P["VERDE"], P["VERDE_TESTO"], P["VERDE_TENUE"]
+    REFUSO_TESTO, REFUSO_TENUE = P["REFUSO_TESTO"], P["REFUSO_TENUE"]
 
-    cfg = carica_config()
     casa = os.path.expanduser("~")
     # className: la dock/barra delle applicazioni associa la finestra al lanciatore
     root = tk.Tk(className="newsletter2tex")
     root.title("Newsletter Ubuntu-it")
     root.configure(bg=SFONDO)
-    root.minsize(1000, 680)
-    root.geometry("1100x800")
+    root.minsize(1000, 600)
+    root.geometry(stato.get("geometria") or f"1100x{min(800, root.winfo_screenheight() - 80)}")
 
     immagini = {}   # riferimenti alle PhotoImage (altrimenti il garbage collector le cancella)
 
@@ -1700,11 +1932,11 @@ def avvia_gui(prova=None):
 
     root.iconphoto(True, immagine_icona(True), immagine_icona(False))
 
-    famiglie = set(tkfont.families(root))
-    sans = next((f for f in ("Ubuntu", "Ubuntu Sans", "Cantarell", "Noto Sans", "DejaVu Sans")
-                 if f in famiglie), "TkDefaultFont")
-    mono = next((f for f in ("Ubuntu Mono", "Ubuntu Sans Mono", "DejaVu Sans Mono", "Noto Mono")
-                 if f in famiglie), "TkFixedFont")
+    famiglie = {f.lower(): f for f in tkfont.families(root)}
+    sans = next((famiglie[f.lower()] for f in ("Ubuntu", "Ubuntu Sans", "Cantarell", "Noto Sans", "DejaVu Sans")
+                 if f.lower() in famiglie), "TkDefaultFont")
+    mono = next((famiglie[f.lower()] for f in ("Ubuntu Mono", "Ubuntu Sans Mono", "DejaVu Sans Mono",
+                                               "Noto Mono") if f.lower() in famiglie), "TkFixedFont")
     F = {
         "titolo": tkfont.Font(family=sans, size=17, weight="bold"),
         "sottotitolo": tkfont.Font(family=sans, size=10),
@@ -1715,6 +1947,7 @@ def avvia_gui(prova=None):
         "bottone": tkfont.Font(family=sans, size=10, weight="bold"),
         "grande": tkfont.Font(family=sans, size=11, weight="bold"),
         "enorme": tkfont.Font(family=sans, size=20, weight="bold"),
+        "numero": tkfont.Font(family=sans, size=22, weight="bold"),
         "mono": tkfont.Font(family=mono, size=9),
         "mono_b": tkfont.Font(family=mono, size=9, weight="bold"),
     }
@@ -1729,8 +1962,33 @@ def avvia_gui(prova=None):
               foreground=[("selected", TESTO)])
     stile.configure("Esplora.Treeview.Heading", background=SCHEDA, foreground=TENUE, relief="flat",
                     borderwidth=0, font=F["piccolo_b"], padding=(8, 6))
-    stile.map("Esplora.Treeview.Heading", background=[("active", "#F7F3F0")])
+    stile.map("Esplora.Treeview.Heading", background=[("active", HOVER)])
     stile.layout("Esplora.Treeview", [("Esplora.Treeview.treearea", {"sticky": "nswe"})])
+
+    class Suggerimento:
+        # Piccola etichetta che compare al passaggio del mouse
+        def __init__(self):
+            self.top = None
+
+        def mostra(self, testo, x, y):
+            self.nascondi()
+            self.top = tk.Toplevel(root)
+            self.top.wm_overrideredirect(True)
+            tk.Label(self.top, text=testo, bg="#1F161C", fg="#F1E6EE", font=F["piccolo"],
+                     padx=9, pady=5).pack()
+            self.top.wm_geometry(f"+{x}+{y}")
+
+        def nascondi(self):
+            if self.top:
+                self.top.destroy()
+                self.top = None
+
+    suggerimento = Suggerimento()
+
+    def con_suggerimento(widget, testo):
+        widget.bind("<Enter>", lambda e: suggerimento.mostra(
+            testo() if callable(testo) else testo, e.x_root + 12, e.y_root + 18), add="+")
+        widget.bind("<Leave>", lambda e: suggerimento.nascondi(), add="+")
 
     # --- componenti -----------------------------------------------------------
     def rettangolo_arrotondato(c, x1, y1, x2, y2, r, **kw):
@@ -1773,18 +2031,30 @@ def avvia_gui(prova=None):
                 self.itemconfigure(self.win, height=max(1, e.height - 2 * self.inset))
 
     class Gettone(tk.Canvas):
-        "Etichetta a pillola (conteggi di errori, avvisi, refusi)."
+        "Etichetta a pillola (conteggi di errori, avvisi, refusi); spenta = filtrata."
 
-        def __init__(self, parent, colore, sfondo):
-            super().__init__(parent, height=24, width=10, bg=parent["bg"], highlightthickness=0)
-            self.colore, self.sfondo = colore, sfondo
+        def __init__(self, parent, colore, sfondo, comando=None):
+            super().__init__(parent, height=24, width=10, bg=parent["bg"], highlightthickness=0,
+                             cursor="hand2" if comando else "arrow")
+            self.colore, self.sfondo, self.testo, self.acceso = colore, sfondo, "", True
+            if comando:
+                self.bind("<Button-1>", lambda e: comando())
 
-        def configure_testo(self, testo):
+        def configure_testo(self, testo=None, acceso=None):
+            if testo is not None:
+                self.testo = testo
+            if acceso is not None:
+                self.acceso = acceso
             self.delete("all")
-            l = F["piccolo_b"].measure(testo) + 24
+            l = F["piccolo_b"].measure(self.testo) + 24
             self.configure(width=l)
-            rettangolo_arrotondato(self, 0, 0, l, 24, 12, fill=self.sfondo, outline="")
-            self.create_text(l / 2, 12, text=testo, fill=self.colore, font=F["piccolo_b"])
+            if self.acceso:
+                rettangolo_arrotondato(self, 0, 0, l, 24, 12, fill=self.sfondo, outline="")
+                colore = self.colore
+            else:
+                rettangolo_arrotondato(self, 1, 1, l - 1, 23, 11, fill=self["bg"], outline=BORDO_FORTE)
+                colore = GRIGIO_CALDO
+            self.create_text(l / 2, 12, text=self.testo, fill=colore, font=F["piccolo_b"])
 
     class Bottone(tk.Canvas):
         """Pulsante arrotondato: tipo 'primario' (arancione), 'secondario' o 'piatto'."""
@@ -1813,17 +2083,18 @@ def avvia_gui(prova=None):
         def _colori(self):
             if self.tipo == "primario":
                 if not self.attivo:
-                    return ARANCIO_SPENTO, ARANCIO_SPENTO, "white"
+                    return ARANCIO_SPENTO, ARANCIO_SPENTO, P["PRIMARIO_SPENTO_TESTO"]
                 f = ARANCIO_HOVER if self.sopra else ARANCIO
                 return f, f, "white"
             sfondo = self["bg"]
             if self.tipo == "piatto":
                 if not self.attivo:
-                    return sfondo, sfondo, "#C9C2BC"
-                return ("#E4DED9" if self.sopra else sfondo), ("#E4DED9" if self.sopra else sfondo), TESTO
+                    return sfondo, sfondo, DISABILITATO
+                return ((PIATTO_HOVER if self.sopra else sfondo), (PIATTO_HOVER if self.sopra else sfondo),
+                        TESTO)
             if not self.attivo:
-                return SCHEDA, BORDO, "#BDB6B0"
-            return ("#F7F3F0" if self.sopra else SCHEDA), (BORDO_FORTE if self.sopra else BORDO), TESTO
+                return SCHEDA, BORDO, DISABILITATO
+            return (HOVER if self.sopra else SCHEDA), (BORDO_FORTE if self.sopra else BORDO), TESTO
 
         def _disegna(self):
             self.delete("all")
@@ -1882,7 +2153,7 @@ def avvia_gui(prova=None):
             c = self.c
             c.delete("all")
             on = self.var.get()
-            rettangolo_arrotondato(c, 1, 1, 39, 21, 10, fill=ARANCIO if on else "#D6D0CB", outline="")
+            rettangolo_arrotondato(c, 1, 1, 39, 21, 10, fill=ARANCIO if on else INTERRUTTORE_OFF, outline="")
             x = 28 if on else 12
             c.create_oval(x - 8, 3, x + 8, 19, fill="white", outline="")
 
@@ -1929,7 +2200,7 @@ def avvia_gui(prova=None):
         def _disegna(self):
             self.delete("all")
             rettangolo_arrotondato(self, 1, 1, int(self["width"]) - 1, self.a + 7, 16,
-                                   fill="#ECE7E3", outline="")
+                                   fill=SEGMENTATO, outline="")
             x = 4
             for (valore, testo), l in zip(self.opzioni, self.larghezze):
                 scelto = self.var.get() == valore
@@ -2002,7 +2273,7 @@ def avvia_gui(prova=None):
         def _disegna(self, pieno=None):
             self.delete("all")
             l = self.winfo_width()
-            rettangolo_arrotondato(self, 0, 0, l, 4, 2, fill="#E6E0DB", outline="")
+            rettangolo_arrotondato(self, 0, 0, l, 4, 2, fill=TRACCIA, outline="")
             if pieno is not None:
                 rettangolo_arrotondato(self, 0, 0, l, 4, 2, fill=pieno, outline="")
             elif self.in_corso:
@@ -2050,6 +2321,45 @@ def avvia_gui(prova=None):
         sb.bind("<Configure>", lambda e: disegna())
         widget.configure(yscrollcommand=disegna)
         return sb
+
+    class AreaScorrevole(tk.Frame):
+        "Colonna che scorre con la rotella quando il contenuto non entra nella finestra."
+
+        def __init__(self, parent):
+            super().__init__(parent, bg=parent["bg"])
+            self.c = tk.Canvas(self, bg=parent["bg"], highlightthickness=0, bd=0, yscrollincrement=24)
+            self.interno = tk.Frame(self.c, bg=parent["bg"])
+            self.win = self.c.create_window(0, 0, window=self.interno, anchor="nw")
+            self.sb = barra_scorrimento(self, self.c, parent["bg"], BORDO_FORTE)
+            self.c.pack(side="left", fill="both", expand=True)
+            self.interno.bind("<Configure>", self._aggiorna)
+            self.c.bind("<Configure>", self._aggiorna)
+            root.bind_all("<Button-4>", self._rotella, add="+")
+            root.bind_all("<Button-5>", self._rotella, add="+")
+            root.bind_all("<MouseWheel>", self._rotella, add="+")
+
+        def _aggiorna(self, _=None):
+            self.c.itemconfigure(self.win, width=self.c.winfo_width())
+            alto = self.interno.winfo_reqheight()
+            self.c.configure(scrollregion=(0, 0, self.c.winfo_width(), alto))
+            serve = alto > self.c.winfo_height() + 1
+            if serve and not self.sb.winfo_ismapped():
+                self.sb.pack(side="right", fill="y", padx=(6, 0), before=self.c)
+            elif not serve and self.sb.winfo_ismapped():
+                self.sb.pack_forget()
+                self.c.yview_moveto(0)
+
+        def _rotella(self, e):
+            w = root.winfo_containing(e.x_root, e.y_root)
+            if w is None or not str(w).startswith(str(self)) or not self.sb.winfo_ismapped():
+                return
+            passo = -1 if (getattr(e, "num", 0) == 4 or getattr(e, "delta", 0) > 0) else 1
+            self.c.yview_scroll(passo * 2, "units")
+
+        def in_fondo(self):
+            root.update_idletasks()
+            self._aggiorna()
+            self.c.yview_moveto(1.0)
 
     def scheda(parent, titolo, sottotitolo=None, riempi=False):
         cornice = Pannello(parent, r=18, padx=20, pady=16, riempi=riempi)
@@ -2197,7 +2507,7 @@ def avvia_gui(prova=None):
         albero.column("#0", width=330, minwidth=200, stretch=True)
         albero.column("mod", width=150, minwidth=120, stretch=False, anchor="w")
         albero.column("dim", width=100, minwidth=80, stretch=False, anchor="e")
-        albero.tag_configure("pari", background="#FBFAF9")
+        albero.tag_configure("pari", background=RIGA_PARI)
         albero.tag_configure("nascosto", foreground=GRIGIO_CALDO)
         albero.pack(side="left", fill="both", expand=True)
         barra_scorrimento(elenco_f, albero, SCHEDA, BORDO_FORTE).pack(side="right", fill="y", pady=4)
@@ -2511,7 +2821,46 @@ def avvia_gui(prova=None):
         c.create_text(l - 24, 36, text=f"Design {DESIGN}", anchor="e", fill="#E6CFE0", font=F["piccolo"])
         c.create_text(l - 24, 56, text=f"versione {VERSIONE}", anchor="e", fill="#B98FAF",
                       font=F["piccolo"])
+        destra_x = l - 24 - max(F["piccolo"].measure(f"Design {DESIGN}"),
+                                F["piccolo"].measure(f"versione {VERSIONE}")) - 34
+        for nome, cx in (("tema", destra_x), ("stat", destra_x - 50)):
+            fondo = "#7A3A70" if sopra_testata.get(nome) else "#4A1A42"
+            c.create_oval(cx - 19, 44 - 19, cx + 19, 44 + 19, fill=fondo, outline="", tags=(nome,))
+            chiaro = "#F7E7F2"
+            if nome == "stat":
+                for x1, alto in ((-8, 7), (-2, 14), (4, 10)):
+                    c.create_rectangle(cx + x1, 44 + 7 - alto, cx + x1 + 5, 44 + 7, fill=chiaro,
+                                       outline="", tags=(nome,))
+            elif tema == "chiaro":           # luna: passa alla modalità notte
+                c.create_oval(cx - 8, 44 - 8, cx + 8, 44 + 8, fill=chiaro, outline="", tags=(nome,))
+                c.create_oval(cx - 3, 44 - 12, cx + 11, 44 + 2, fill=fondo, outline="", tags=(nome,))
+            else:                            # sole: passa alla modalità giorno
+                c.create_oval(cx - 5, 44 - 5, cx + 5, 44 + 5, fill="#FFD27A", outline="", tags=(nome,))
+                import math
+                for k in range(8):
+                    a = math.radians(k * 45)
+                    c.create_line(cx + 8 * math.cos(a), 44 + 8 * math.sin(a), cx + 11 * math.cos(a),
+                                  44 + 11 * math.sin(a), fill="#FFD27A", width=2, capstyle="round",
+                                  tags=(nome,))
 
+    sopra_testata = {}
+
+    def evidenzia_testata(nome, valore, e=None):
+        sopra_testata[nome] = valore
+        testata.configure(cursor="hand2" if valore else "")
+        disegna_testata()
+        if valore and e is not None:
+            testo = {"stat": "Statistiche dei bug da Launchpad",
+                     "tema": "Modalità notte" if tema == "chiaro" else "Modalità giorno"}[nome]
+            suggerimento.mostra(testo, e.x_root - 40, e.y_root + 26)
+        else:
+            suggerimento.nascondi()
+
+    for nome in ("tema", "stat"):
+        testata.tag_bind(nome, "<Enter>", lambda e, n=nome: evidenzia_testata(n, True, e))
+        testata.tag_bind(nome, "<Leave>", lambda e, n=nome: evidenzia_testata(n, False))
+    testata.tag_bind("tema", "<Button-1>", lambda e: cambia_tema())
+    testata.tag_bind("stat", "<Button-1>", lambda e: mostra_statistiche())
     testata.bind("<Configure>", disegna_testata)
 
     corpo = tk.Frame(root, bg=SFONDO, padx=22, pady=18)
@@ -2521,6 +2870,13 @@ def avvia_gui(prova=None):
     corpo.rowconfigure(0, weight=1)
     sinistra = tk.Frame(corpo, bg=SFONDO)
     sinistra.grid(row=0, column=0, sticky="nsew")
+    tk.Label(sinistra, text="oppure premi Invio", bg=SFONDO, fg=GRIGIO_CALDO,
+             font=F["piccolo"]).pack(side="bottom", pady=(6, 0))
+    b_converti = Bottone(sinistra, "Converti", tipo="primario", font=F["grande"], alto=48, espandi=True)
+    b_converti.pack(side="bottom", fill="x", pady=(14, 0))
+    area = AreaScorrevole(sinistra)
+    area.pack(fill="both", expand=True)
+    colonna = area.interno
     destra = tk.Frame(corpo, bg=SFONDO)
     destra.grid(row=0, column=1, sticky="nsew", padx=(18, 0))
 
@@ -2528,7 +2884,7 @@ def avvia_gui(prova=None):
     v_sorgente = tk.StringVar(value="ultimo")
     v_numero = tk.StringVar(value=f"{dt.date.today().year}.")
     v_file = tk.StringVar()
-    c_sorg, s_corpo, _ = scheda(sinistra, "Sorgente", "da dove prendere il testo")
+    c_sorg, s_corpo, _ = scheda(colonna, "Sorgente", "da dove prendere il testo")
     c_sorg.pack(fill="x")
     Segmentato(s_corpo, [("ultimo", "Ultimo numero"), ("numero", "Numero specifico"),
                          ("file", "File .txt")], v_sorgente).pack(anchor="w")
@@ -2586,7 +2942,7 @@ def avvia_gui(prova=None):
     v_cartella = tk.StringVar(value=cfg["cartella_lavoro"])
     v_pdf = tk.BooleanVar(value=bool(shutil.which("pdflatex")))
     v_txt = tk.BooleanVar(value=True)
-    c_dest, d_corpo, _ = scheda(sinistra, "Destinazione", "cartella dell'anno, con le immagini")
+    c_dest, d_corpo, _ = scheda(colonna, "Destinazione", "cartella dell'anno, con le immagini")
     c_dest.pack(fill="x", pady=(14, 0))
     riga = tk.Frame(d_corpo, bg=SCHEDA)
     riga.pack(fill="x")
@@ -2614,7 +2970,7 @@ def avvia_gui(prova=None):
     v_pdf_utente = tk.StringVar(value=pdf0[0])
     v_pdf_nome = tk.StringVar(value=pdf0[1])
     v_edizione = tk.StringVar(value="; ".join(f"{u}:{n}" for u, n in cfg["edizione_predefinita"]))
-    c_imp, i_corpo, i_testa = scheda(sinistra, "Impostazioni personali")
+    c_imp, i_corpo, i_testa = scheda(colonna, "Impostazioni personali")
     c_imp.pack(fill="x", pady=(14, 0))
     v_aperte = tk.BooleanVar(value=False)
     interruttore_imp = tk.Label(i_testa, text="Mostra", bg=SCHEDA, fg=ARANCIO, font=F["bottone"],
@@ -2645,10 +3001,7 @@ def avvia_gui(prova=None):
             i_corpo.pack(fill="both", expand=True, pady=(12, 0))
             griglia.pack(fill="x")
             interruttore_imp.configure(text="Nascondi")
-            root.update_idletasks()
-            serve = root.winfo_reqheight()
-            if root.winfo_height() < serve:
-                root.geometry(f"{root.winfo_width()}x{min(serve, root.winfo_screenheight() - 60)}")
+            area.in_fondo()
         else:
             griglia.pack_forget()
             i_corpo.pack_forget()
@@ -2657,12 +3010,6 @@ def avvia_gui(prova=None):
     for w in (interruttore_imp, i_testa):
         w.bind("<Button-1>", alterna_impostazioni)
 
-    # --- azione ---------------------------------------------------------------------------
-    tk.Frame(sinistra, bg=SFONDO).pack(fill="both", expand=True)
-    b_converti = Bottone(sinistra, "Converti", tipo="primario", font=F["grande"], alto=48, espandi=True)
-    b_converti.pack(fill="x", pady=(18, 0))
-    tk.Label(sinistra, text="oppure premi Invio", bg=SFONDO, fg=GRIGIO_CALDO,
-             font=F["piccolo"]).pack(pady=(6, 0))
 
     # --- risultato --------------------------------------------------------------------------
     c_ris, r_corpo, r_testa = scheda(destra, "Risultato", riempi=True)
@@ -2675,23 +3022,77 @@ def avvia_gui(prova=None):
     gettoni = tk.Frame(r_testa, bg=SCHEDA)
     gettoni.pack(side="right")
 
-    def gettone(testo, fg, bg):
-        return Gettone(gettoni, fg, bg)
-    g_err = gettone("", ROSSO, ROSSO_TENUE)
-    g_avv = gettone("", "#9A6100", AMBRA_TENUE)
-    g_ref = gettone("", MELANZANA_VIVA, "#F3E6F1")
-    g_ok = gettone("", "#1F7A31", VERDE_TENUE)
+    filtri = dict(stato.get("filtri") or {"ERRORE": True, "AVVISO": True, "REFUSO": True})
 
-    console_pannello = Pannello(r_corpo, sfondo=MELANZANA_SCURA, bordo=MELANZANA_SCURA, r=16,
+    def alterna_filtro(livello):
+        filtri[livello] = not filtri[livello]
+        {"ERRORE": g_err, "AVVISO": g_avv, "REFUSO": g_ref}[livello].configure_testo(acceso=filtri[livello])
+        ridisegna_console()
+
+    g_err = Gettone(gettoni, ROSSO, ROSSO_TENUE, lambda: alterna_filtro("ERRORE"))
+    g_avv = Gettone(gettoni, AMBRA_TESTO, AMBRA_TENUE, lambda: alterna_filtro("AVVISO"))
+    g_ref = Gettone(gettoni, REFUSO_TESTO, REFUSO_TENUE, lambda: alterna_filtro("REFUSO"))
+    g_ok = Gettone(gettoni, VERDE_TESTO, VERDE_TENUE)
+    for g, cosa in ((g_err, "gli errori"), (g_avv, "gli avvisi"), (g_ref, "i refusi")):
+        con_suggerimento(g, lambda g=g, cosa=cosa: ("Nascondi " if g.acceso else "Mostra ") + cosa)
+
+    # anteprima della copertina del PDF
+    anteprima_f = tk.Frame(r_corpo, bg=SCHEDA)
+    tela_copertina = tk.Canvas(anteprima_f, width=108, height=10, bg=SCHEDA, highlightthickness=0,
+                               cursor="hand2")
+    tela_copertina.pack(side="left")
+    tela_copertina.bind("<Button-1>", lambda e: apri("pdf"))
+    con_suggerimento(tela_copertina, "Apri il PDF")
+    info_copertina = tk.Frame(anteprima_f, bg=SCHEDA)
+    info_copertina.pack(side="left", fill="x", expand=True, padx=(16, 0))
+    v_cop_titolo, v_cop_dett = tk.StringVar(), tk.StringVar()
+    tk.Label(info_copertina, text="PDF PRONTO", bg=SCHEDA, fg=VERDE_TESTO, font=F["piccolo_b"]).pack(anchor="w")
+    tk.Label(info_copertina, textvariable=v_cop_titolo, bg=SCHEDA, fg=TESTO, font=F["grande"]).pack(
+        anchor="w", pady=(2, 0))
+    tk.Label(info_copertina, textvariable=v_cop_dett, bg=SCHEDA, fg=TENUE, font=F["piccolo"]).pack(anchor="w")
+    collegamento = tk.Label(info_copertina, text="Apri il PDF", bg=SCHEDA, fg=ARANCIO, font=F["bottone"],
+                            cursor="hand2")
+    collegamento.pack(anchor="w", pady=(8, 0))
+    collegamento.bind("<Button-1>", lambda e: apri("pdf"))
+
+    def mostra_anteprima(dato):
+        cop = dato.get("miniatura") if dato else None
+        if not cop or not os.path.exists(cop["png"]):
+            anteprima_f.pack_forget()
+            return
+        try:
+            img = tk.PhotoImage(file=cop["png"])
+        except tk.TclError:
+            anteprima_f.pack_forget()
+            return
+        immagini["copertina"] = img
+        w, h = img.width(), img.height()
+        tela_copertina.configure(width=w + 4, height=h + 4)
+        tela_copertina.delete("all")
+        tela_copertina.create_rectangle(2, 3, w + 3, h + 4, fill=BORDO, outline="")
+        tela_copertina.create_image(1, 1, image=img, anchor="nw")
+        tela_copertina.create_rectangle(1, 1, w + 1, h + 1, outline=BORDO_FORTE)
+        d = dato.get("dati") or {}
+        v_cop_titolo.set(f"Newsletter {d.get('numero', 0):03d} · {d.get('anno', '')}")
+        parti = []
+        if cop.get("pagine"):
+            parti.append(f"{cop['pagine']} pagine")
+        parti.append(f"{cop['dimensione'] / 1024:.0f} kB" if cop["dimensione"] < 1024 * 1024
+                     else f"{cop['dimensione'] / 1048576:.1f} MB")
+        parti.append(os.path.basename(dato["pdf"]))
+        v_cop_dett.set(" · ".join(parti))
+        anteprima_f.pack(fill="x", pady=(0, 12), before=console_pannello)
+
+    console_pannello = Pannello(r_corpo, sfondo=CONSOLE, bordo=CONSOLE if tema == "chiaro" else BORDO, r=16,
                                 padx=12, pady=10, riempi=True)
     console_pannello.pack(fill="both", expand=True)
     console_cornice = console_pannello.interno
     console = tk.Text(console_cornice, height=18, wrap="word", font=F["mono"], relief="flat", bd=0,
-                      bg=MELANZANA_SCURA, fg=CONSOLE_TESTO, insertbackground=ARANCIO,
+                      bg=CONSOLE, fg=CONSOLE_TESTO, insertbackground=ARANCIO,
                       selectbackground=MELANZANA_VIVA, padx=6, pady=4, highlightthickness=0,
                       state="disabled", cursor="arrow")
     console.pack(side="left", fill="both", expand=True)
-    barra_scorrimento(console_cornice, console, MELANZANA_SCURA, MELANZANA_VIVA).pack(
+    barra_scorrimento(console_cornice, console, CONSOLE, MELANZANA_VIVA).pack(
         side="right", fill="y")
     console.tag_configure("ERRORE", foreground="#FF7B7F")
     console.tag_configure("AVVISO", foreground="#FFB44D")
@@ -2705,7 +3106,11 @@ def avvia_gui(prova=None):
     console.tag_configure("NUMERO", foreground=ARANCIO, font=F["mono_b"], spacing1=10)
     console.tag_configure("PROMPT", foreground=ARANCIO, font=F["mono_b"])
 
-    def scrivi(riga, tag="PASSO", prompt=False):
+    # La console tiene un registro degli eventi: così i filtri e il cambio di tema
+    # possono ridisegnarla da capo.
+    eventi = list(stato.get("eventi") or [])
+
+    def _inserisci(riga, tag="PASSO", prompt=False):
         riga = riga.replace(casa, "~")
         console.configure(state="normal")
         if prompt:
@@ -2714,16 +3119,58 @@ def avvia_gui(prova=None):
         console.see("end")
         console.configure(state="disabled")
 
+    def scrivi(riga, tag="PASSO", prompt=False):
+        eventi.append(("testo", riga, tag, prompt))
+        _inserisci(riga, tag, prompt)
+
     def pulisci():
+        eventi.clear()
         console.configure(state="normal")
         console.delete("1.0", "end")
         console.configure(state="disabled")
 
-    scrivi("Pronto. Scegli la sorgente e premi Converti.", "INFO", prompt=True)
+    def disegna_risultato(dato):
+        lg = dato["log_obj"]
+        voci = [v for v in lg.da_controllare() if filtri.get(v[0], True)]
+        nascoste = len(lg.da_controllare()) - len(voci)
+        if voci:
+            _inserisci("\nDa controllare, in ordine di riga del .txt", "TITOLO")
+        ultima = object()
+        for livello, rg, msg in voci:
+            if rg != ultima:
+                if rg is None:
+                    _inserisci("Generale", "RIGA")
+                else:
+                    _inserisci(f"Riga {rg}", "RIGA")
+                    _inserisci("  " + lg.estratto(rg, 90), "ESTRATTO")
+                ultima = rg
+            _inserisci(f"  {livello.lower():<7} {msg}", livello)
+        if nascoste:
+            _inserisci(f"\n  ({nascoste} {'voce nascosta' if nascoste == 1 else 'voci nascoste'} "
+                       "dai filtri: clicca le etichette in alto per mostrarle)", "INFO")
+        info = [v for v in dato["voci"] if v[0] == "INFO"]
+        if info:
+            _inserisci("\nDettagli", "TITOLO")
+            for _, rg, msg in sorted(info, key=lambda v: (v[1] is None, v[1] or 0)):
+                _inserisci(("  riga %-4d " % rg if rg else "  ") + msg, "INFO")
+
+    def ridisegna_console():
+        console.configure(state="normal")
+        console.delete("1.0", "end")
+        console.configure(state="disabled")
+        for e in eventi:
+            if e[0] == "testo":
+                _inserisci(*e[1:])
+            else:
+                disegna_risultato(e[1])
+        console.see("end")
+
+    if not eventi:
+        scrivi("Pronto. Scegli la sorgente e premi Converti.", "INFO", prompt=True)
 
     piede = tk.Frame(r_corpo, bg=SCHEDA)
     piede.pack(fill="x", pady=(12, 0))
-    risultato = {}
+    risultato = dict(stato.get("risultato") or {})
 
     def apri(chiave):
         x = risultato.get(chiave)
@@ -2906,6 +3353,8 @@ def avvia_gui(prova=None):
             try:
                 coda.put(("inizio", etichetta_n))
                 r = esegui(avanzamento=lambda m: coda.put(("stato", m)), **parametri)
+                if r.get("pdf"):
+                    r["miniatura"] = miniatura_pdf(r["pdf"])
                 coda.put(("risultato", r))
             except WikiBloccato as e:
                 coda.put(("bloccato", str(e)))
@@ -2919,16 +3368,18 @@ def avvia_gui(prova=None):
     def mostra_gettoni(errori, avvisi, refusi=0, mostra_ok=True):
         for g in (g_err, g_avv, g_ref, g_ok):
             g.pack_forget()
-        for n, g, uno, piu in ((errori, g_err, "errore", "errori"), (avvisi, g_avv, "avviso", "avvisi"),
-                               (refusi, g_ref, "refuso", "refusi")):
+        for n, g, uno, piu, liv in ((errori, g_err, "errore", "errori", "ERRORE"),
+                                    (avvisi, g_avv, "avviso", "avvisi", "AVVISO"),
+                                    (refusi, g_ref, "refuso", "refusi", "REFUSO")):
             if n:
-                g.configure_testo(f"{n} {uno if n == 1 else piu}")
+                g.configure_testo(f"{n} {uno if n == 1 else piu}", acceso=filtri[liv])
                 g.pack(side="left", padx=(6, 0))
         if mostra_ok and not (errori or avvisi or refusi):
             g_ok.configure_testo("tutto ok")
             g_ok.pack(side="left", padx=(6, 0))
 
-    totali = {"errori": 0, "avvisi": 0, "refusi": 0, "fallimenti": 0, "numeri": 0}
+    totali = dict(stato.get("totali") or {"errori": 0, "avvisi": 0, "refusi": 0, "fallimenti": 0, "numeri": 0})
+    esito_barra = {"colore": stato.get("barra")}
 
     def mostra_risultato(dato):
         risultato.clear()
@@ -2938,24 +3389,9 @@ def avvia_gui(prova=None):
         totali["errori"] += errori
         totali["avvisi"] += avvisi
         totali["refusi"] += refusi
-        voci = lg.da_controllare()
-        if voci:
-            scrivi("\nDa controllare, in ordine di riga del .txt", "TITOLO")
-        ultima = object()
-        for livello, rg, msg in voci:
-            if rg != ultima:
-                if rg is None:
-                    scrivi("Generale", "RIGA")
-                else:
-                    scrivi(f"Riga {rg}", "RIGA")
-                    scrivi("  " + lg.estratto(rg, 90), "ESTRATTO")
-                ultima = rg
-            scrivi(f"  {livello.lower():<7} {msg}", livello)
-        info = [v for v in dato["voci"] if v[0] == "INFO"]
-        if info:
-            scrivi("\nDettagli", "TITOLO")
-            for _, rg, msg in sorted(info, key=lambda v: (v[1] is None, v[1] or 0)):
-                scrivi(("  riga %-4d " % rg if rg else "  ") + msg, "INFO")
+        eventi.append(("risultato", dato))
+        disegna_risultato(dato)
+        mostra_anteprima(dato)
         b_cartella.stato(True)
         b_aprilog.stato(True)
         b_apripdf.stato(bool(dato.get("pdf")))
@@ -2991,6 +3427,7 @@ def avvia_gui(prova=None):
                     b_converti.stato(True)
                     e, a, r = totali["errori"], totali["avvisi"], totali["refusi"]
                     if totali["fallimenti"] and not risultato:
+                        esito_barra["colore"] = ROSSO
                         barra.ferma(ROSSO)
                         v_stato.set("Conversione non riuscita.")
                         mostra_gettoni(0, 0, mostra_ok=False)
@@ -3001,7 +3438,8 @@ def avvia_gui(prova=None):
                     scrivi(f"\n✓ {esito}." if not (e or totali["fallimenti"]) else f"\n! {esito}.",
                            "OK" if not (e or totali["fallimenti"]) else "ERRORE")
                     v_stato.set(f"{esito} · {os.path.basename(risultato.get('tex', ''))}")
-                    barra.ferma(ROSSO if (e or totali["fallimenti"]) else AMBRA if (a or r) else VERDE)
+                    esito_barra["colore"] = ROSSO if (e or totali["fallimenti"]) else AMBRA if (a or r) else VERDE
+                    barra.ferma(esito_barra["colore"])
                     mostra_gettoni(e, a, r)
                     if novita["dati"] and v_sorgente.get() == "ultimo":
                         aggiorna_dopo_conversione()
@@ -3028,6 +3466,8 @@ def avvia_gui(prova=None):
         for k in totali:
             totali[k] = 0
         risultato.clear()
+        anteprima_f.pack_forget()
+        esito_barra["colore"] = None
         mostra_gettoni(0, 0, mostra_ok=False)
         for b in (b_cartella, b_aprilog, b_apripdf):
             b.stato(False)
@@ -3069,11 +3509,211 @@ def avvia_gui(prova=None):
                     return
             avvia_lavoro([(None, {"file": v_file.get().strip()})])
 
+    # --- statistiche dei bug -------------------------------------------------------------
+    def mostra_statistiche():
+        top = finestra_modale("Statistiche dei bug", 620, 560)
+        top.configure(bg=SCHEDA)
+        testa = tk.Canvas(top, height=96, highlightthickness=0, bg=MELANZANA_SCURA)
+        testa.pack(fill="x")
+
+        def disegna(_=None):
+            testa.delete("all")
+            l = testa.winfo_width()
+            for i in range(0, l, 4):
+                t = i / max(l, 1)
+                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
+                                         int(0x1E + (0x6F - 0x1E) * t))
+                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
+            testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
+                              text="LAUNCHPAD · UBUNTU")
+            testa.create_text(28, 62, anchor="w", fill="white", font=F["enorme"],
+                              text="Statistiche dei bug")
+        testa.bind("<Configure>", disegna)
+
+        corpo_s = tk.Frame(top, bg=SCHEDA, padx=24, pady=18)
+        corpo_s.pack(fill="both", expand=True)
+        riquadri = tk.Frame(corpo_s, bg=SCHEDA)
+        riquadri.pack(fill="x")
+        valori_v, diff_g = {}, {}
+        for i, (chiave, nome) in enumerate(VOCI_STATISTICHE):
+            riquadri.columnconfigure(i, weight=1, uniform="stat")
+            pan = Pannello(riquadri, sfondo=SFONDO, bordo=BORDO, r=14, padx=16, pady=12)
+            pan.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 10, 0))
+            tk.Label(pan.interno, text=nome.upper(), bg=SFONDO, fg=TENUE, font=F["piccolo_b"]).pack(anchor="w")
+            valori_v[chiave] = tk.StringVar(value="…")
+            tk.Label(pan.interno, textvariable=valori_v[chiave], bg=SFONDO, fg=TESTO,
+                     font=F["numero"]).pack(anchor="w", pady=(2, 4))
+            diff_g[chiave] = Gettone(pan.interno, TENUE, SFONDO)
+            diff_g[chiave].pack(anchor="w")
+        v_rif = tk.StringVar(value="")
+        tk.Label(corpo_s, textvariable=v_rif, bg=SCHEDA, fg=TENUE, font=F["piccolo"], anchor="w",
+                 justify="left", wraplength=560).pack(fill="x", pady=(12, 8))
+        tk.Label(corpo_s, text="RIGHE PER IL WIKI · SEZIONE «BUG RIPORTATI»", bg=SCHEDA, fg=TENUE,
+                 font=F["piccolo_b"]).pack(anchor="w")
+        pan_testo = Pannello(corpo_s, sfondo=CONSOLE, bordo=CONSOLE, r=12, padx=12, pady=10)
+        pan_testo.pack(fill="x", pady=(6, 0))
+        blocco = tk.Text(pan_testo.interno, height=3, wrap="none", font=F["mono"], relief="flat", bd=0,
+                         bg=CONSOLE, fg=CONSOLE_TESTO, highlightthickness=0, insertbackground=ARANCIO)
+        blocco.pack(fill="x")
+        v_stato_s = tk.StringVar(value="Interrogo Launchpad…")
+        tk.Label(corpo_s, textvariable=v_stato_s, bg=SCHEDA, fg=TENUE, font=F["piccolo"], anchor="w").pack(
+            fill="x", pady=(10, 0))
+        barra_s = Avanzamento(corpo_s)
+        barra_s.pack(fill="x", pady=(6, 0))
+
+        tk.Frame(top, bg=BORDO, height=1).pack(fill="x")
+        piede_s = tk.Frame(top, bg=SCHEDA, padx=24, pady=14)
+        piede_s.pack(fill="x")
+        b_copia = Bottone(piede_s, "Copia per il wiki", None, tipo="primario", alto=40, padx=24)
+        b_copia.pack(side="right")
+        b_aggiorna = Bottone(piede_s, "Aggiorna", None, alto=40)
+        b_aggiorna.pack(side="right", padx=(0, 10))
+        Bottone(piede_s, "Chiudi", top.destroy, tipo="piatto", alto=40).pack(side="left")
+        b_copia.stato(False)
+
+        rif = riferimento_statistiche(cfg)
+        if not rif and novita["dati"]:
+            st = leggi_statistiche(novita["dati"]["testo"])
+            if st:
+                rif = ({k: v[0] for k, v in st.items()},
+                       f"{novita['dati']['anno']}.{novita['dati']['numero']:03d}")
+        coda_s = queue.Queue()
+
+        def copia():
+            root.clipboard_clear()
+            root.clipboard_append(blocco.get("1.0", "end").rstrip("\n") + "\n")
+            v_stato_s.set("Copiato: incolla le righe nella sezione «Bug riportati» del wiki.")
+        b_copia.comando = copia
+
+        def avvia():
+            b_aggiorna.stato(False)
+            b_copia.stato(False)
+            for k in valori_v:
+                valori_v[k].set("…")
+                diff_g[k].pack_forget()
+            barra_s.avvia()
+
+            def lavora():
+                try:
+                    coda_s.put(("ok", statistiche_launchpad(lambda m: coda_s.put(("passo", m)))))
+                except Exception as e:
+                    coda_s.put(("errore", str(e)))
+            threading.Thread(target=lavora, daemon=True).start()
+            root.after(150, attendi)
+        b_aggiorna.comando = avvia
+
+        def attendi():
+            if not top.winfo_exists():
+                return
+            try:
+                while True:
+                    tipo, dato = coda_s.get_nowait()
+                    if tipo == "passo":
+                        v_stato_s.set("Interrogo Launchpad: " + dato)
+                        continue
+                    b_aggiorna.stato(True)
+                    if tipo == "errore":
+                        barra_s.ferma(ROSSO)
+                        v_stato_s.set(dato + ". Riprova tra poco con «Aggiorna».")
+                        return
+                    barra_s.ferma(VERDE)
+                    prec = rif[0] if rif else None
+                    for k, _ in VOCI_STATISTICHE:
+                        valori_v[k].set(f"{dato[k]:,}".replace(",", "."))
+                        if prec and k in prec:
+                            d = dato[k] - prec[k]
+                            colori = ((ROSSO, ROSSO_TENUE) if d > 0 else (VERDE_TESTO, VERDE_TENUE) if d < 0
+                                      else (TENUE, SEGMENTATO))
+                            diff_g[k].colore, diff_g[k].sfondo = colori
+                            diff_g[k].configure_testo(formatta_differenza(d))
+                            diff_g[k].pack(anchor="w")
+                    blocco.delete("1.0", "end")
+                    blocco.insert("1.0", blocco_statistiche(dato, prec))
+                    b_copia.stato(True)
+                    adesso = dt.datetime.now().strftime("%H:%M")
+                    v_stato_s.set(f"Valori letti da Launchpad alle {adesso}.")
+                    return
+            except queue.Empty:
+                root.after(150, attendi)
+
+        v_rif.set(f"Differenze calcolate rispetto al numero {rif[1].replace('.', '/')} "
+                  "(il più recente con le statistiche nella tua cartella)." if rif else
+                  "Nessun numero precedente con le statistiche: le differenze restano «???» "
+                  "da completare a mano.")
+        avvia()
+        mostra_modale(top)
+
+    # --- tema giorno/notte -----------------------------------------------------------------
+    def raccogli_stato():
+        return {
+            "tema": tema, "geometria": root.geometry(), "sorgente": v_sorgente.get(),
+            "numero": v_numero.get(), "file": v_file.get(), "cartella": v_cartella.get(),
+            "pdf": v_pdf.get(), "txt": v_txt.get(), "cura": v_cura.get(), "pdf_utente": v_pdf_utente.get(),
+            "pdf_nome": v_pdf_nome.get(), "edizione": v_edizione.get(), "imp_aperte": v_aperte.get(),
+            "novita": novita["dati"], "novita_errore": (v_wiki.get(), v_wiki2.get()),
+            "eventi": eventi, "totali": totali, "risultato": dict(risultato), "filtri": filtri,
+            "barra": esito_barra["colore"], "v_stato": v_stato.get(),
+        }
+
+    def cambia_tema():
+        if not b_converti.attivo:
+            messagebox.showinfo("Conversione in corso", "Aspetta la fine della conversione per cambiare tema.",
+                                parent=root)
+            return
+        nuovo = "scuro" if tema == "chiaro" else "chiaro"
+        cfg["tema"] = nuovo
+        try:
+            salva_config(dict(carica_config(), tema=nuovo))
+        except OSError:
+            pass
+        st = raccogli_stato()
+        st["tema"] = nuovo
+        if st["barra"] in (PALETTE[tema]["ROSSO"], PALETTE[tema]["VERDE"], PALETTE[tema]["AMBRA"]):
+            st["barra"] = {PALETTE[tema]["ROSSO"]: "ROSSO", PALETTE[tema]["VERDE"]: "VERDE",
+                           PALETTE[tema]["AMBRA"]: "AMBRA"}[st["barra"]]
+        riavvio["stato"] = st
+        suggerimento.nascondi()
+        root.destroy()
+
+    def ripristina():
+        for var, chiave in ((v_sorgente, "sorgente"), (v_numero, "numero"), (v_file, "file"),
+                            (v_cartella, "cartella"), (v_pdf, "pdf"), (v_txt, "txt"), (v_cura, "cura"),
+                            (v_pdf_utente, "pdf_utente"), (v_pdf_nome, "pdf_nome"), (v_edizione, "edizione")):
+            if chiave in stato:
+                var.set(stato[chiave])
+        if stato.get("imp_aperte"):
+            alterna_impostazioni()
+        if stato.get("novita"):
+            novita["dati"] = stato["novita"]
+            d = novita["dati"]
+            colore_pallino(ARANCIO if d["mancanti"] else VERDE)
+        elif stato.get("novita_errore"):
+            colore_pallino(ROSSO if "Impossibile" in stato["novita_errore"][0] else GRIGIO_CALDO)
+        if stato.get("novita_errore"):
+            v_wiki.set(stato["novita_errore"][0])
+            v_wiki2.set(stato["novita_errore"][1])
+        if stato.get("v_stato"):
+            v_stato.set(stato["v_stato"])
+        ridisegna_console()
+        if risultato:
+            b_cartella.stato(True)
+            b_aprilog.stato(True)
+            b_apripdf.stato(bool(risultato.get("pdf")))
+            mostra_anteprima(risultato)
+            mostra_gettoni(totali["errori"], totali["avvisi"], totali["refusi"])
+        if stato.get("barra"):
+            esito_barra["colore"] = {"ROSSO": ROSSO, "VERDE": VERDE, "AMBRA": AMBRA}.get(stato["barra"],
+                                                                                       stato["barra"])
+            root.after(50, lambda: barra.ferma(esito_barra["colore"]))
+
     b_converti.comando = converti_click
     root.bind("<Return>", lambda e: converti_click() if e.widget.winfo_toplevel() is root else None)
     root.bind("<Control-q>", lambda e: root.destroy())
     root.bind("<Control-o>", lambda e: (v_sorgente.set("file"), scegli_file()))
 
+    if stato:
+        ripristina()
     if prova:   # solo per i test automatici
         def imposta(**kw):
             nonlocal prova_esplora, prova_novita
@@ -3082,10 +3722,12 @@ def avvia_gui(prova=None):
         prova(root, {"sorgente": v_sorgente, "file": v_file, "converti": converti_click,
                      "impostazioni": alterna_impostazioni, "esplora": esplora,
                      "mostra_novita": mostra_novita, "imposta": imposta,
-                     "controllo": avvia_controllo})
-    else:
+                     "controllo": avvia_controllo, "tema": cambia_tema, "statistiche": mostra_statistiche, "filtro": alterna_filtro,
+                     "stato": stato})
+    elif not stato:
         root.after(600, avvia_controllo)
     root.mainloop()
+    return riavvio["stato"]
 
 
 # ---------------------------------------------------------------------------
@@ -3107,6 +3749,8 @@ def main():
     g.add_argument("-f", "--file", help="file .txt (sorgente wiki) da convertire")
     g.add_argument("-n", "--numero", help="numero da scaricare, es. 2026.031")
     g.add_argument("--gui", action="store_true", help="apre l'interfaccia grafica")
+    g.add_argument("--statistiche", action="store_true",
+                   help="legge da Launchpad i bug aperti, critici e nuovi e stampa le righe per il wiki")
     g.add_argument("--controlla", action="store_true",
                    help="controlla se sul wiki ci sono numeri non ancora convertiti")
     g.add_argument("--esporta-icona", metavar="PERCORSO", nargs="?", const=PERCORSO_ICONA,
@@ -3126,6 +3770,17 @@ def main():
         return
     if args.esporta_icona:
         print(esporta_icona(os.path.expanduser(args.esporta_icona)))
+        return
+    if args.statistiche:
+        cfg = carica_config()
+        try:
+            valori = statistiche_launchpad(lambda m: print("  " + m, file=sys.stderr))
+        except RuntimeError as e:
+            sys.exit(str(e))
+        rif = riferimento_statistiche(cfg)
+        if rif:
+            print(f"Differenze rispetto al numero {rif[1]}:\n", file=sys.stderr)
+        print(blocco_statistiche(valori, rif[0] if rif else None))
         return
     if args.controlla:
         try:

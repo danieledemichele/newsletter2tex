@@ -1,0 +1,20 @@
+Questo è il numero '''31''' del '''2026''', riferito alla settimana che va da '''lunedì 28 settembre''' a '''domenica 4 ottobre'''.
+= Notizie da Ubuntu =
+== Articolo di prova ==
+Testo con [[https://esempio.org/pagina]] senza testo e [[https://esempio.org/x | ]] vuoto.
+Un link rotto [[https://esempio.org/a testo senza barra]] e uno non chiuso [[https://esempio.org.
+Ecco ~-piccolo-~, ^apice^, ,,pedice,, e `codice` e <<FootNote(nota)>> e {{https://img.png}}.
+Perchè il kernel ,  è veloce  ma non troppo,anzi.Davvero (molto "veloce.
+Un pò di il il testo con l' aggiornamento.
+* lista senza spazio
+== Titolo rotto =
+#acl Tutti:read
+== Sezione vuota ==
+== Altro ==
+Bla.
+''Fonte'': [[https://a.org | a.org]]
+''Fonte'': [[https://a.org | a.org]]
+= Commenti e informazioni =
+In questo numero hanno partecipato alla redazione degli articoli:
+ * [[dd3my | Daniele De Michele]]
+ * Mario Rossi

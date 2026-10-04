@@ -1,0 +1,272 @@
+\documentclass[a4paper,twoside]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+
+\usepackage{graphicx}
+\graphicspath{{./}{./Immagini/}{../}{../Immagini/}}
+\usepackage{wrapfig}
+\usepackage[labelformat=empty]{subfig}
+
+\usepackage{emptypage}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{bm}
+\usepackage{hyperref}
+\hypersetup{
+			colorlinks=true,
+			linkcolor=blue,
+			anchorcolor=magenta,
+			citecolor=blue,
+			urlcolor=blue,
+}
+\usepackage[hypertext]{cdpaddon}
+\usepackage[dvipsnames]{xcolor}
+	\definecolor{ubuntuarancio}{RGB}{233, 84, 32}
+	\definecolor{Mycolor2}{HTML}{E95420}
+
+\usepackage{fancyhdr}
+	\pagestyle{fancy}
+	\fancyhead{}
+	\fancyhead[RO,LE]{\textit{Newsletter Ubuntu-it N.011, Marzo 2025}}
+	\renewcommand{\headrulewidth}{0.4pt}
+	\renewcommand{\footrulewidth}{0.4pt}
+
+\begin{document}
+
+\begin{titlepage}
+\parbox{0.33\textwidth}{%
+	\smash{\textcolor{ubuntuarancio}{\rule[-\textheight]{15pt}{\textheight}}}\hfill
+\parbox[b][\textheight]{0.95\textwidth}{\centering
+		\includegraphics[width=0.8\textwidth]{newlogo1.png}
+		\vspace{1\baselineskip}
+
+		\textbf{\Huge Newsletter Ubuntu-it}\vspace{0.5\baselineskip}
+
+		\textbf{\Large Numero 011 - Anno 2025}\vspace{0.5\baselineskip}
+
+		\textit{\large Gruppo Social Media}
+
+		\vspace{\stretch{1}}
+		\url{https://wiki.ubuntu-it.org/GruppoPromozione/}\vspace{\baselineskip}
+		\makebox[\linewidth]{2025}
+}}
+\end{titlepage}
+\clearpage
+\hfill
+\vfill
+\pdfbookmark[0]{Colophon}{colophon}
+\thispagestyle{empty}
+\section*{Licenza}
+Il presente documento e il suo contenuto è distribuito con licenza \textbf{Creative Commons 4.0 di tipo “Attribuzione - Condividi allo stesso modo”}. È possibile riprodurre, distribuire, comunicare al pubblico, esporre al pubblico, rappresentare, eseguire o recitare il presente documento alle seguenti condizioni:
+
+\begin{itemize}
+\item \textbf{Attribuzione} - Devi riconoscere una menzione di paternità adeguata, fornire un link alla licenza e indicare se sono state effettuate delle modifiche. Puoi fare ciò in qualsiasi maniera ragionevole possibile, ma non con modalità tali da suggerire che il licenziante avalli te o il tuo utilizzo del materiale.
+\item \textbf{Stessa Licenza} - Se remixi, trasformi il materiale o ti basi su di esso, devi distribuire i tuoi contributi con la stessa licenza del materiale originario.
+\item \textbf{Divieto di restrizioni aggiuntive} - Non puoi applicare termini legali o misure tecnologiche che impongano ad altri soggetti dei vincoli giuridici su quanto la licenza consente loro di fare.
+\end{itemize}
+
+Un riassunto in italiano della licenza è presente a questa $\href{https://creativecommons.org/licenses/by-sa/4.0/it/}{\textsl{pagina}}$. Per maggiori informazioni:
+
+\begin{center}
+$\href{http://www.creativecommons.org}{\texttt{http://www.creativecommons.org}}$
+\end{center}
+
+Questo documento è stato composto interamente dall'autore con \LaTeX. Per maggiori informazioni, o segnalazioni:
+
+\begin{flushleft}
+$\href{http://liste.ubuntu-it.org/cgi-bin/mailman/listinfo/newsletter-italiana}{\textsl{Mailing List Newsletter-italiana}}$: iscriviti per
+ricevere la Newsletter Italiana di Ubuntu!;\\
+$\href{http://liste.ubuntu-it.org/cgi-bin/mailman/listinfo/newsletter-ubuntu}{\textsl{Mailing List Newsletter-Ubuntu}}$: la redazione della newsletter italiana. Se vuoi collaborare alla realizzazione della newsletter, questo è lo strumento giusto con cui contattarci.\\
+\textbf{Canale IRC}: $\href{https://chat.ubuntu-it.org/#ubuntu-it-promo}{\textsl{$\#$ubuntu-it-promo}}$
+\end{flushleft}
+
+\begin{flushright}
+A cura di:\\
+\textbf{Daniele De Michele}
+\end{flushright}
+
+\clearpage
+\thispagestyle{empty}
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.2\textwidth]{newlogo2.png}
+\end{figure}
+\begin{center}
+\textbf{\Huge Newsletter Ubuntu-it}\vspace{\baselineskip}
+\end{center}
+\tableofcontents
+
+\cleardoublepage
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.7\textwidth]{newlogo1.png}
+\end{figure}
+\vspace{0.30cm}
+Questo è il numero \textbf{11} del \textbf{2025} della Newsletter di Ubuntu-it, riferito alla settimana che va da \textbf{lunedì 24 Marzo} a \textbf{domenica 30 Marzo}. Per qualsiasi commento, critica o lode, contattaci attraverso la $\href{http://liste.ubuntu-it.org/cgi-bin/mailman/listinfo/facciamo-promozione}{\textsl{mailing list}}$ del $\href{https://wiki.ubuntu-it.org/GruppoPromozione}{\textsl{gruppo promozione}}$.
+
+\section{Notizie da Ubuntu}
+
+\subsection{Ubuntu 25.04 Beta è disponibile per il download}
+\textbf{Ubuntu 25.04 Beta} è finalmente disponibile per il $\href{https://releases.ubuntu.com/25.04/}{\textsl{download}}$, offrendo agli utenti un'anteprima delle numerose novità che caratterizzeranno la prossima versione stabile del pinguino, in arrivo ad Aprile. Questa release segna un passo avanti significativo per la distribuzione di \textbf{Canonical}, consolidando l'integrazione con \textbf{Wayland}, migliorando il supporto hardware e introducendo aggiornamenti sostanziali per l'ambiente desktop \textbf{GNOME 46}. Tranquilli, non ci siamo dimenticati, c'è anche l'adozione della versione 6.8 del kernel Linux, che garantisce migliori prestazioni e una maggiore compatibilità con tutte le ultime generazioni di hardware, sino ad arrivare a un completo miglioramento nella gestione dell'energia per i dispositivi portatili. Ma non siamo qui per entrare nel merito di tutte le novità presenti, perché se segui questa newsletter sai già di cosa stiamo parlando. Per questo motivo, approfitta per testare la nuova versione beta di Ubuntu, ricordando che si tratta di una versione non definitiva e che quindi potrebbero essere presenti bug o instabilità. Per precauzione, allora, consigliamo di installarla su una macchina virtuale o in una partizione separata. Tuttavia, per gli utenti che vogliono avere un'anteprima del futuro di Ubuntu e contribuire al suo sviluppo, questa beta rappresenta un'opportunità imperdibile per esplorare tutte le nuove funzionalità prima del rilascio ufficiale e far sapere la vostra opinione.\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.omgubuntu.co.uk/2025/03/ubuntu-25-04-beta-download}{\textsl{omgubuntu.co.uk}}$\\
+$\href{https://9to5linux.com/ubuntu-25-04-plucky-puffin-enters-public-beta-testing-with-linux-6-14-gnome-48}{\textsl{9to5linux.com}}$
+
+\subsection{Ubuntu risolve il problema di connessione Wi-Fi}
+Gli utenti di \textbf{Ubuntu 24.04 LTS e 24.10} hanno recentemente affrontato un $\href{https://bugs.launchpad.net/ubuntu/+source/gdm3/+bug/2098016}{\textsl{problema}}$ significativo durante l'avvio del sistema: l'impossibilità di connettersi a nuove reti Wi-Fi protette da password direttamente dalla schermata di accesso. Questo inconveniente si manifestava quando, tentando di collegarsi a una rete wireless che richiedeva l'inserimento di una password, il prompt per l'immissione non appariva, causando il fallimento della connessione. La radice del problema risiedeva nel modo in cui la schermata di login, implementata eseguendo GNOME Shell in modalità "greeter", interagiva con il servizio \textsl{org.freedesktop.secrets}. In questa modalità, GNOME Shell tentava di comunicare con il servizio per verificare se la password della rete fosse già memorizzata. Tuttavia, a causa dell'isolamento tra la sessione del greeter e quella dell'utente, questa comunicazione falliva, interrompendo il processo di connessione. Allora, per affrontare questa criticità, gli ingegneri di \textbf{Canonical} hanno proposto una soluzione efficace: far sì che, in modalità greeter, GNOME Shell richieda sempre all'utente l'inserimento della password per le nuove connessioni Wi-Fi. Questa modifica è stata $\href{https://gitlab.gnome.org/GNOME/gnome-shell/-/merge_requests/3646}{\textsl{accolta e integrata}}$ nella release \textbf{48} di \textbf{GNOME}, rappresentando un passo avanti nella risoluzione del problema. Questi aggiornamenti sono attualmente in fase di distribuzione attraverso i consueti canali di aggiornamento software. Pertanto, gli utenti che hanno riscontrato difficoltà nel connettersi a nuove reti Wi-Fi dalla schermata di login dovrebbero assicurarsi di applicare quanto prima gli ultimi aggiornamenti disponibili per beneficiare della correzione.\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.omgubuntu.co.uk/2025/03/ubuntu-fix-wifi-connecting-login-screen}{\textsl{omgubuntu.co.uk}}$
+
+\subsection{Un binomio mai tramontato tra Ubuntu 25.04 e Wayland}
+\textbf{Ubuntu 25.04} si prepara a essere una delle versioni più innovative e interessanti della celebre distribuzione Linux, con un forte focus sul server grafico $\href{https://it.wikipedia.org/wiki/Wayland_(protocollo)}{\textsl{Wayland}}$ e su una migliore esperienza utente sia per gli ambienti desktop \textbf{GNOME} sia \textbf{KDE Plasma}. Il passaggio definitivo a Wayland rappresenta uno degli aspetti più significativi di questa release, consolidando l'abbandono definitivo di X11 in favore di un protocollo più moderno, sicuro e performante. Questa transizione, che ha richiesto anni di lavoro e ottimizzazioni (come più volte discusso all'interno di questa newsletter), porta con sé benefici evidenti, tra cui un supporto migliorato per gli schermi ad alto refresh rate, una gestione più efficiente delle risorse e una maggiore fluidità nell'interazione con il sistema. E qui le strade si separano, perché:
+
+\begin{itemize}
+\item Dal lato di \textbf{GNOME 46}, gli utenti possono aspettarsi un ambiente desktop ancora più reattivo, con un focus sulla semplificazione dell'interfaccia e sull'ottimizzazione delle prestazioni. Le novità includono una gestione avanzata delle notifiche, un file manager più veloce e intuitivo e una maggiore coerenza nell'uso degli effetti nelle animazioni. Ubuntu continua a seguire la filosofia di GNOME, offrendo un'esperienza minimalista e orientata alla produttività, senza rinunciare a strumenti avanzati per il controllo delle impostazioni di sistema.
+\item Mentre per chi preferisce \textbf{KDE Plasma}, Ubuntu 25.04 propone un'esperienza altrettanto migliorata grazie all'adozione di \textbf{Plasma 6}, che introduce una serie di innovazioni significative. Tra queste, spiccano un compositore Wayland più stabile, una gestione migliorata delle finestre e delle attività, oltre a un maggiore controllo sulle impostazioni di sistema. La cura alla fluidità e alla coerenza visiva del sistema è evidente, con un perfezionamento continuo del $\href{https://github.com/KDE/breeze}{\textsl{tema Breeze}}$ e una riduzione dei consumi di risorse, che rendono KDE una scelta perfetta per chi cerca un mix tra estetica e funzionalità avanzate.
+\end{itemize}
+
+Un altro punto di forza di \textbf{Ubuntu 25.04}, di cui beneficeranno i gamers, è il miglioramento del supporto per i \textbf{driver grafici}, con aggiornamenti specifici per \textbf{AMD}, \textbf{Intel} e \textbf{NVIDIA}. Grazie a questi miglioramenti, le performance nei videogiochi e nelle applicazioni di rendering risultano più affidabili e ottimizzate, confermando Ubuntu come una delle migliori opzioni per chi utilizza Linux anche in ambiti professionali e di gaming.
+\textbf{Ubuntu 25.04} segna quindi un passo deciso verso il futuro, consolidando l'adozione di \textbf{Wayland} e  migliorando l'integrazione con \textbf{GNOME 46} e \textbf{KDE Plasma 6}. \textbf{Canonical} dimostra ancora una volta il suo impegno nell'evoluzione di Ubuntu, rendendolo un sistema operativo sempre più performante, moderno e in linea con le esigenze degli utenti.\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.phoronix.com/review/ubuntu-2504-kde-gnome-way}{\textsl{phoronix.com}}$
+
+\section{Notizie dalla comunità internazionale}
+
+\subsection{Inizia il processo di freeze per Debian 13}
+Va avanti il processo di sviluppo di \textbf{Debian 13} (nome in codice \textit{Trixie}). Recentemente gli sviluppatori hanno dato il via alla fase di congelamento, un passaggio fondamentale che segna la stabilizzazione del sistema in vista del rilascio finale. Questa fase prevede una graduale restrizione delle modifiche accettate nel repository principale, con l'obiettivo di garantire una distribuzione affidabile e ben testata. D'altronde, \textbf{Debian} e \textbf{Ubuntu} sono note per la loro filosofia di sviluppo meticolosa, incentrata sulla stabilità e sulla sicurezza. E il processo di freeze rappresenta il cuore di questa strategia. Quindi, d'ora in avanti gli sviluppatori dovranno attenersi a criteri sempre più stringenti per l'inclusione di nuovi pacchetti o aggiornamenti, concentrandosi principalmente sulla correzione di bug critici e sull'affinamento delle funzionalità già presenti (secondo un $\href{https://lists.debian.org/debian-devel-announce/2025/03/msg00011.html}{\textsl{ultimo aggiornamento}}$, sembrerebbe che i bug critici stiano diminuendo). Seguendo il suddetto processo si eviterà per quanto possibile qualsiasi problema, rendendola una scelta ideale per ambienti server e per utenti che prediligono un sistema operativo solido e prevedibile. Questa rigidità è essenziale per evitare che l'introduzione di nuove funzionalità possa compromettere la stabilità della distribuzione, ritardandone il rilascio.
+Ricordiamo, per chi se lo fosse perso, che tra le novità più importanti di questa release spicca l'aggiornamento di numerosi pacchetti software, tra cui le ultime versioni di GNOME, KDE Plasma e altri ambienti desktop, insieme a un kernel Linux più recente, che offre miglioramenti in termini di prestazioni e compatibilità hardware. Un altro aspetto fondamentale riguarda l'inclusione di nuove funzionalità per la gestione della sicurezza, con politiche più restrittive sui pacchetti e un focus sulla riduzione delle vulnerabilità. Questo approccio è particolarmente rilevante considerando l'importanza di Debian nel mondo enterprise e nelle infrastrutture critiche, dove la sicurezza è un elemento chiave. L'arrivo di \textbf{Debian 13} sarà un evento significativo per l'intero ecosistema Linux, non solo per gli utenti della distribuzione, ma anche per i tanti progetti che si basano su di essa, come \textbf{Ubuntu}.\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.phoronix.com/news/Debian-13-Freeze-Begins}{\textsl{phoronix.com}}$
+
+\subsection{Full Circle Magazine Issue \#215 in inglese}
+È stato pubblicato sul sito internazionale di $\href{http://fullcirclemagazine.org}{\textsl{Full Circle Magazine}}$, il numero 215 in Inglese.
+
+In questo numero troviamo:
+
+\begin{itemize}
+\item How-To: Networking Basics, Trading Up To Linux e Latex
+\item Grafica: Inkscape
+\item Recensione: VirtualBox vs Gnome Boxes e DistroSea
+\item {[NEW!]} Bodhi Corner
+\item UbPorts Touch
+\item Giochi Ubuntu: Fates of Ort
+\end{itemize}
+
+... e molto altro ancora.
+
+È possibile scaricare la rivista da $\href{https://fullcirclemagazine.org/magazines/issue-215/}{\textsl{questa pagina}}$.
+
+\section{Notizie dal Mondo}
+
+\subsection{Linus Torvalds su tutte le furie per l'integrazione di un codice nel Kernel 6.15}
+Non c'è giorno in cui il papà del kernel Linux non si arrabbi. Ma facciamo un passo indietro, per capire bene cosa è successo. La versione \textbf{Linux 6.15} ha recentemente integrato una serie di aggiornamenti significativi per i driver grafici open source, tra cui l'introduzione del codice di test "hdrtest". Tuttavia, questa inclusione ha suscitato una reazione decisa da parte di \textit{Linus Torvalds}, che ha espresso il proprio disappunto tramite un $\href{https://lore.kernel.org/dri-devel/174321011387.3019715.1646591159826097779.pr-tracker-bot@kernel.org/T/\#t}{\textsl{messaggio}}$ in mailing list, definendo il codice come un "disgustoso test 'turd'" e sollecitando una sua revisione o rimozione. Il termine "hdrtest" si riferisce a test sulle \textit{intestazioni} (header) dei file C, con l'obiettivo di garantire che siano autocontenuti e conformi alle specifiche del \textsl{kernel-doc}. Nello specifico, questo codice è stato implementato nel driver \textbf{Intel Xe} per assicurare che i file di intestazione \textit{$\href{https://en.wikipedia.org/wiki/Direct_Rendering_Manager}{\textsl{Direct Rendering Manager (DRM)}}$} siano correttamente strutturati e privi di anomalie. Sebbene l'intento fosse migliorare la manutenzione e la qualità del codice, l'approccio adottato ha sollevato critiche per la sua esecuzione, considerata inadeguata. Chissà a questo punto (e speriamo di sì) se il tutto verrà sistemato.\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.phoronix.com/news/Linux-6.15-hdrtest-Turd}{\textsl{phoronix.com}}$
+
+\subsection{Il team di KDE mette fine ad una serie di fastidiosi bug}
+In queste ore, il team di sviluppo di \textbf{KDE} ha rilasciato \textbf{Plasma 6.3.4}, una versione che si distingue per l'attenzione meticolosa nella risoluzione di numerosi e fastidiosi bug segnalati dalla comunità. Questa release rappresenta un passo significativo verso un'esperienza utente più stabile, perché si sono affrontate problematiche che potevano influire negativamente sull'usabilità quotidiana. Per esempio, uno degli interventi più rilevanti e che ha richiesto una particolare attenzione riguardava proprio la correzione di due gravi crash, che interessavano \textbf{KWin}, cioè il gestore delle finestre di KDE. Questi crash potevano compromettere la stabilità del sistema, causando interruzioni improvvise e frustranti per l'utente, però, grazie a questo aggiornamento, l'affidabilità di KWin è stata notevolmente migliorata, garantendo una gestione delle finestre più fluida e senza intoppi. Inoltre, ora - e questa è una miglioria e non un fix - vi è anche la possibilità di controllare la presenza della barra del titolo e del frame di una finestra direttamente dal menu contestuale del Task Manager. Questa funzionalità offre agli utenti un maggiore controllo sull'aspetto e sul comportamento delle finestre, permettendo una personalizzazione più approfondita dell'ambiente di lavoro. Altra problematica affrontata riguarda la schermata di blocco, che, in alcune circostanze misteriose, poteva apparire completamente nera su sessioni X11, creando una certa confusione e difficoltà nell'accesso al proprio sistema. Con l'ultima release, questo bug è stato risolto, assicurando che la schermata di blocco funzioni correttamente e mostri le informazioni attese.
+Inoltre, è stato risolto uno dei venti crash più frequenti di Plasma, che si verificava al risveglio dalla modalità sospensione. Bene, con questo miglioramento si rende il ritorno all'attività dopo una pausa più rapido e privo di inconvenienti, migliorando l'efficienza nell'uso quotidiano del sistema ed evitando riavvi inutili. Rapido e indolore, questo aggiornamento è focalizzato esclusivamente sulla stabilità e sull'affidabilità, affrontando e risolvendo una serie di problematiche assai fastidiose. Aggiorna e facci sapere la tua!\\
+\\
+\textit{Fonte}:\\
+$\href{https://www.phoronix.com/news/KDE-Plasma-6.3.4-Fixes-Crashes}{\textsl{phoronix.com}}$\\
+$\href{https://www.phoronix.com/news/KDE-Fixes-Large-Num-Bugs}{\textsl{phoronix.com}}$\\
+$\href{https://www.phoronix.com/news/KDE-Plasma-6.4-KMenuEdit}{\textsl{phoronix.com}}$
+
+\subsection{Rilasciato LibreOffice 25.2.2 con 88 correzioni di bug}
+La \textbf{Document Foundation} ha $\href{https://blog.documentfoundation.org/blog/2025/03/27/libreoffice-25-2-2-and-24-8-6/}{\textsl{annunciato}}$ il rilascio e la disponibilità per tutte le piattaforme supportate della seconda point release della potente suite per l'ufficio, \textbf{LibreOffice 25.2}. Ricordiamo, per chi se lo fosse perso, che questa è la prima versione ad utilizzare il nuovo schema di numerazione dei rilasci basato sulla dicitura Anno/Mese. Quindi, nel caso di LibreOffice 25.2, ad esempio, si tratta della versione 2025 del mese di Febbraio. Questa nuovo approccio alla numerazione delle versioni, secondo TDF, servirà a invogliare gli utenti a installare sempre le ultime versioni, che oltre alle nuove funzionalità possono offrire una serie di correzioni in materia di sicurezza e stabilità.
+Detto questo, dopo neanche un mese dal suo rilascio, la release 25.2.2 scende in campo per risolvere oltre ottantotto bug, presenti all'interno di tutti i componenti principali della suite per l'ufficio, inclusi Writer, Calc, Impress e Draw. Queste correzioni permettono di aumentare sempre di più la stabilità e la robustezza della suite, garantendo al contempo una migliore interoperabilità con i formati di documenti proprietari della suite MicroSoft Office, come DOCX, XLSX e PPTX. Pertanto, se all'interno del tuo dispositivo utilizzi la versione di LibreOffice 25.2, dovresti prendere in considerazione l'aggiornamento alla versione 25.2.2 il prima possibile e magari dare anche un'occhiata ai dettagli sulle correzioni di questi bug, disponibili per $\href{https://wiki.documentfoundation.org/Releases/25.2.2/RC1}{\textsl{RC1}}$ e $\href{https://wiki.documentfoundation.org/Releases/25.2.2/RC2}{\textsl{RC2}}$. Tuttavia, occorre tenere presente che questa è l'edizione "Community", quindi se hai bisogno di supporto per le distribuzioni aziendali dovresti considerare l'utilizzo della famiglia di applicazioni $\href{https://www.libreoffice.org/download/libreoffice-in-business/}{\textsl{LibreOffice Enterprise}}$ (per maggiori informazioni guarda il numero $\href{https://wiki.ubuntu-it.org/NewsletterItaliana/2021.005\#LibreOffice_7.1_Community:_ecco_cosa_c.27.2BAOg_di_nuovo.21}{\textsl{2021.005}}$).
+\textbf{LibreOffice 25.2.2} è immediatamente disponibile sul $\href{https://www.libreoffice.org/download/}{\textsl{sito ufficiale}}$. I requisiti minimi per i sistemi operativi proprietari sono disponibili nella $\href{https://it.libreoffice.org/supporto/requisiti-sistema/}{\textsl{suddetta pagina}}$; mentre per \textbf{GNU/Linux}, si ricorda principalmente come regola generale che è sempre consigliabile installare LibreOffice utilizzando i metodi di installazione raccomandati dalla propria distribuzione, come ad esempio l'uso di \textit{Ubuntu Software Center} per \textbf{Ubuntu}. Gli utenti di LibreOffice, i sostenitori del software libero e i membri della comunità possono supportare The Document Foundation attraverso una $\href{https://www.libreoffice.org/donate}{\textsl{piccola donazione}}$. Le vostre donazioni aiutano \textbf{The Document Foundation} a mantenere la sua infrastruttura, condividere la conoscenza e a finanziare attività delle comunità locali.\\
+\\
+\textit{Fonte}:\\
+$\href{https://9to5linux.com/libreoffice-25-2-2-office-suite-is-now-available-for-download-with-83-bug-fixes}{\textsl{9to5linux.com}}$
+
+\subsection{Ecco a voi il Kernel Linux 6.14}
+Il \textbf{Kernel Linux 6.14} è stato ufficialmente rilasciato con un $\href{https://lkml.org/lkml/2025/3/24/797}{\textsl{classico messaggio}}$ in mailing list da parte di \textit{Linus Torvalds} e, introducendo una serie di miglioramenti significativi che promettono di elevare le prestazioni e l'affidabilità del sistema operativo in cui si installerà. Tra le novità più rilevanti - si perché sappiate che c'è né sono davvero tante - spicca un nuovo sottosistema chiamato \textit{ntsync}, progettato per migliorare l'emulazione dei giochi Windows tramite \textbf{Wine}, grazie all'implementazione di primitive di sincronizzazione tipiche di Windows NT. Gli utenti che usufruiscono della distribuzione del pinguino, possono aspettarsi un'esperienza di gioco più fluida e reattiva, con tempi di risposta ridotti e una maggiore stabilità.
+Un'altra innovazione degna di nota è il supporto per il nuovo driver di accelerazione per le unità di elaborazione neurale (NPU) di AMD XDNA Ryzen AI, che permetterà di ottimizzare ulteriormente la gestione dei carichi di lavoro legati all'intelligenza artificiale. Questo aggiornamento consente una migliore efficienza energetica e una maggiore compatibilità hardware, rispondendo alle crescenti esigenze nel campo dell'AI. Non solo, ma rappresenta un passo avanti nell'integrazione di funzionalità di intelligenza artificiale direttamente nel kernel. Inoltre, è stato implementato il supporto DRM panic nel driver \textbf{AMD GPU}, che facilita la diagnosi e la risoluzione di problemi critici legati alla grafica.
+Per quanto i file system, $\href{https://it.wikipedia.org/wiki/XFS_(file_system)}{\textsl{XFS}}$ beneficia ora del supporto per reflink e reverse-mapping, migliorando la gestione dei dati, mentre $\href{https://it.wikipedia.org/wiki/Btrfs}{\textsl{Btrfs}}$ beneficia ora del bilanciamento delle letture in configurazioni RAID1, migliorando le prestazioni e l'affidabilità nella gestione dei dati.
+Sul fronte della sicurezza, il kernel 6.14 introduce il supporto per le estensioni dei permessi SELinux, offrendo un controllo più granulare sulle politiche di sicurezza. Inoltre, è stata aggiunta la compatibilità con $\href{https://it.wikipedia.org/wiki/FUSE}{\textsl{FUSE}}$ per $\href{https://en.wikipedia.org/wiki/Io_uring}{\textsl{io\_uring}}$, migliorando le prestazioni delle operazioni di file system in spazio utente. Per quanto riguarda l'architettura RISC-V, sono state integrate le estensioni vettoriali T-Head, ampliando le capacità di elaborazione parallela. Gli utenti di Raspberry Pi apprezzeranno il supporto per la gestione energetica, ovvero per le operazioni di sospensione e ripresa, contribuendo a una maggiore efficienza energetica.
+Detto questo, il rilascio del \textbf{kernel Linux 6.14} segna un avanzamento significativo nel panorama del software open source. Le numerose migliorie introdotte, che spaziano dal supporto hardware avanzato a potenziamenti in termini di sicurezza e prestazioni, evidenziano l'impegno costante della comunità Linux nel fornire un sistema operativo all'avanguardia, capace di rispondere efficacemente alle esigenze di utenti e sviluppatori.\\
+\\
+\textit{Fonte}:\\
+$\href{https://9to5linux.com/linux-kernel-6-14-officially-released-this-is-whats-new}{\textsl{9to5linux.com}}$
+
+\section{Aggiornamenti e statistiche}
+
+\subsection{Aggiornamenti di sicurezza}
+Gli annunci di sicurezza sono consultabili nell'apposita $\href{http://forum.ubuntu-it.org/viewforum.php?f=64}{\textsl{sezione del forum}}$.
+
+\subsection{Bug riportati}
+
+\begin{itemize}
+\item Aperti: 142865, \textbf{+8} rispetto alla scorsa settimana.
+\item Critici: 331, \textbf{+2} rispetto alla scorsa settimana.
+\item Nuovi: 72689, \textbf{-32} rispetto alla scorsa settimana.
+\end{itemize}
+
+È possibile aiutare a migliorare Ubuntu, riportando problemi o malfunzionamenti. Se si desidera collaborare ulteriormente, la $\href{https://wiki.ubuntu.com/BugSquad}{\textsl{Bug Squad}}$ ha sempre bisogno di una mano.
+
+\subsection{Statistiche del gruppo sviluppo}
+Segue la lista dei pacchetti realizzati dal $\href{https://wiki.ubuntu-it.org/GruppoSviluppo}{\textsl{GruppoSviluppo}}$ della comunità italiana nell'ultima settimana:
+
+\begin{itemize}
+\item \textit{Riccardo Coccioli}:
+\begin{itemize}
+\item $\href{https://tracker.debian.org/cumin}{\textsl{cumin 5.1.1-1}}$, per Debian unstable
+\end{itemize}
+\end{itemize}
+
+Se si vuole contribuire allo sviluppo di Ubuntu correggendo bug, aggiornando i pacchetti nei repository, ecc... il $\href{https://wiki.ubuntu-it.org/GruppoSviluppo}{\textsl{gruppo sviluppo}}$ è sempre alla ricerca di nuovi volontari.
+
+\section{Commenti e informazioni}
+La tua newsletter preferita è scritta grazie al contributo libero e volontario della $\href{https://wiki.ubuntu-it.org/GruppoPromozione/SocialMedia/Crediti}{\textsl{comunità ubuntu-it}}$. In questo numero hanno partecipato alla redazione degli articoli:
+
+\begin{itemize}
+\item $\href{https://wiki.ubuntu-it.org/dd3my}{\textsl{Daniele De Michele}}$
+\item $\href{https://wiki.ubuntu-it.org/essedia1960}{\textsl{Stefano Dall'Agata}}$
+\end{itemize}
+
+Ha realizzato il pdf:
+
+\begin{itemize}
+\item $\href{https://wiki.ubuntu-it.org/dd3my}{\textsl{Daniele De Michele}}$
+\end{itemize}
+
+\section{Scrivi per la newsletter}
+La \textbf{Newsletter Ubuntu-it} ha lo scopo di tenere aggiornati tutti gli utenti \textbf{Ubuntu} e, più in generale, le persone appassionate del mondo open-source. Viene resa disponibile gratuitamente con cadenza settimanale ogni Lunedì, ed è aperta al contributo di tutti gli utenti che vogliono partecipare con un proprio articolo. L’autore dell’articolo troverà tutte le raccomandazioni e istruzioni dettagliate all’interno della pagina $\href{https://wiki.ubuntu-it.org/GruppoPromozione/SocialMedia/Newsletter/LineeGuida}{\textsl{Linee Guida}}$, dove inoltre sono messi a disposizione per tutti gli utenti una serie di indirizzi web che offrono notizie riguardanti le principali novità su Ubuntu e sulla comunità internazionale, tutte le informazioni sulle attività della comunità italiana, le notizie sul software libero dall’Italia e dal mondo. Per chiunque fosse interessato a collaborare con la newsletter Ubuntu-it a titolo di redattore o grafico, può scrivere alla $\href{http://liste.ubuntu-it.org/cgi-bin/mailman/listinfo/facciamo-promozione}{\textsl{mailing list}}$ del $\href{http://wiki.ubuntu-it.org/GruppoPromozione}{\textsl{gruppo promozione}}$ oppure sul canale IRC: $\href{https://chat.ubuntu-it.org/#ubuntu-it-promo}{\textsl{$\#$ubuntu-it-promo}}$. Fornire il tuo contributo a questa iniziativa come membro, e non solo come semplice utente, è un presupposto fondamentale per aiutare la diffusione di Ubuntu anche nel nostro paese. Per rimanere in contatto con noi, puoi seguirci su:
+
+\begin{figure}[!h]
+\centering
+\subfloat[][\emph{$\href{https://www.facebook.com/ubuntu.it}{\textsl{Facebook}}$}]
+	{\includegraphics[width=.12\textwidth]{Facebook.png}} \qquad
+\subfloat[][\emph{$\href{https://twitter.com/ubuntuit}{\textsl{Twitter}}$}]
+	{\includegraphics[width=.15\textwidth]{Twitter.png}} \qquad
+\subfloat[][\emph{$\href{https://youtube.com/ubuntuitpromozione}{\textsl{YouTube}}$}]
+	{\includegraphics[width=.15\textwidth]{YouTube.png}} \qquad
+\subfloat[][\emph{$\href{https://telegram.me/ubuntuit}{\textsl{Telegram}}$}]
+	{\includegraphics[width=.12\textwidth]{Telegram.png}} \qquad
+\end{figure}
+
+\begin{flushright}
+"Noi siamo ciò che siamo per\\
+merito di ciò che siamo tutti"
+\end{flushright}
+
+\clearpage
+\thispagestyle{empty}
+\begin{center}
+Questa newsletter è stata prodotta dal\\
+Gruppo Social Media usando esclusivamente\\
+software libero.
+\end{center}
+
+\end{document}

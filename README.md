@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.0.0-E95420">
+  <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.0-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
 
-![Schermata principale](docs/risultato.png)
+![Dal controllo del wiki al PDF, fino al cambio di tema](docs/demo.gif)
 
 ## Cosa fa
 
@@ -25,6 +26,7 @@ Ogni settimana gli articoli della newsletter vengono scritti sul wiki e poi impa
 - **Converte il markup wiki** in LaTeX: sezioni, grassetto e corsivo, link interni ed esterni, liste annidate, righe "Fonte", statistiche del gruppo sviluppo, crediti.
 - **Applica il template** dell'edizione PDF: frontespizio, colophon, indice, "Scrivi per la newsletter" e chiusura, con numero, anno, mese e date sempre aggiornati.
 - **Segnala cosa correggere** nel testo prima della pubblicazione: markup non riconosciuto, link senza testo, apici non chiusi, refusi. Tutto è ordinato per riga del `.txt`.
+- **Legge le statistiche dei bug da Launchpad**, calcola le differenze con la settimana precedente e controlla che i numeri scritti nel `.txt` tornino.
 - **Funziona sia con l'interfaccia grafica sia da terminale.** È un unico file Python, senza dipendenze esterne.
 
 ## Installazione
@@ -54,8 +56,10 @@ Si apre dal menu delle applicazioni oppure con:
 newsletter2tex --gui
 ```
 
-| Nuovo numero disponibile | Esplora file |
+| Risultato con anteprima del PDF | Modalità notte |
 |---|---|
+| ![Risultato](docs/risultato.png) | ![Modalità notte](docs/modalita-notte.png) |
+| **Nuovo numero disponibile** | **Esplora file** |
 | ![Popup del nuovo numero](docs/popup-nuovo-numero.png) | ![Esplora file](docs/esplora-file.png) |
 
 - **Sorgente**:
@@ -74,12 +78,33 @@ newsletter2tex --gui
 - **Impostazioni personali**: il nome per "A cura di", chi realizza il PDF e i collaboratori predefiniti all'edizione. Vengono salvate in `~/.config/newsletter2tex/config.json` e valgono anche da terminale, così ogni collaboratore inserisce i propri dati una sola volta.
 - **Risultato**:
   - errori, avvisi e refusi raggruppati per riga;
+  - le etichette colorate in alto funzionano da filtro: cliccandole si nascondono o si mostrano errori, avvisi o refusi;
+  - anteprima della copertina del PDF, con numero di pagine e dimensione;
   - pulsanti per aprire la cartella, il log e il PDF.
+- **Modalità giorno/notte**: il pulsante con la luna (o il sole) nell'intestazione cambia tema senza perdere il lavoro in corso. Al primo avvio il programma segue l'impostazione chiaro/scuro di Ubuntu, poi ricorda la tua scelta.
+- **Schermi piccoli**: la colonna di sinistra scorre con la rotella del mouse e il pulsante **Converti** resta sempre visibile.
+
+## Statistiche dei bug
+
+Il pulsante con il grafico nell'intestazione legge da [Launchpad](https://launchpad.net/ubuntu) i bug di Ubuntu **aperti**, **critici** e **nuovi**. Poi calcola le differenze con il numero più recente presente nella tua cartella e prepara le righe da incollare nella sezione «Bug riportati» del wiki, con il pulsante **Copia per il wiki**.
+
+![Statistiche dei bug](docs/statistiche-bug.png)
+
+Da terminale:
+
+```bash
+newsletter2tex --statistiche
+```
+
+Il conteggio dei bug aperti è una richiesta pesante per Launchpad e può richiedere fino a un minuto. Se va in timeout, il programma somma da solo i singoli stati aperti.
+
+Durante la conversione il programma confronta anche le statistiche del `.txt` con quelle del numero precedente, preso dalla tua cartella o, se manca, dal wiki. Se una differenza scritta non torna, la segnala come **ERRORE**; se i valori sono identici alla settimana prima, avvisa che forse non sono stati aggiornati.
 
 ## Uso da terminale
 
 ```bash
 newsletter2tex --controlla              # c'è un numero nuovo da convertire?
+newsletter2tex --statistiche            # righe per il wiki con i bug da Launchpad
 newsletter2tex                          # scarica e converte l'ultimo numero
 newsletter2tex -n 2026.031              # scarica e converte un numero preciso
 newsletter2tex -f vecchio.txt           # converte un file .txt già salvato
@@ -151,6 +176,17 @@ Ogni conversione produce `Newsletter Ubuntu-it NNN.AAAA.conversione.log`, con i 
 2. salva la pagina come `.txt`;
 3. convertila con **File .txt** nella finestra, oppure con `newsletter2tex -f file.txt`.
 
+## Test
+
+A ogni modifica GitHub Actions riconverte il numero di esempio e controlla che il risultato non cambi senza volerlo. Verifica anche conversione, crediti, date, controlli del log e statistiche, e compila davvero il PDF con LaTeX. Per eseguire i test in locale:
+
+```bash
+python3 -m unittest discover -s tests -v    # test della conversione
+python3 tests/compila_pdf.py                # compilazione completa del PDF
+```
+
+Se una modifica al codice cambia volutamente il `.tex` prodotto, va rigenerato il file di riferimento in `tests/attesi/`.
+
 ## Provare senza toccare il wiki
 
 Nella cartella [`esempi/`](esempi/) c'è il testo del numero 2025.011:
@@ -166,8 +202,22 @@ newsletter2tex.py        il programma (conversione, interfaccia grafica, termina
 installa.sh              installazione e aggiornamento per l'utente corrente
 newsletter2tex.desktop   voce del menu applicazioni
 esempi/                  un numero di prova e un log di esempio
-docs/                    icona e schermate per questo README
+tests/                   test automatici e prova di compilazione del PDF
+.github/workflows/       test eseguiti da GitHub Actions a ogni modifica
+docs/                    icona, schermate e animazione per questo README
 ```
+
+## Novità
+
+**1.1.0**
+- Statistiche dei bug da Launchpad, con le righe pronte per il wiki e il controllo delle differenze durante la conversione.
+- Modalità giorno/notte, che al primo avvio segue il tema di Ubuntu.
+- Anteprima della copertina del PDF, etichette-filtro nella console e colonna di sinistra scorrevole.
+- Corretto il testo della licenza nel colophon: accenti (paternità, modalità, È) e il «non» mancante in «ma non con modalità tali da suggerire…».
+- Test automatici e GitHub Actions.
+
+**1.0.0**
+- Prima versione: conversione, interfaccia grafica, controllo dei nuovi numeri, log con errori, avvisi e refusi.
 
 ## Crediti
 
