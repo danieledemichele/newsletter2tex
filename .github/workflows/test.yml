@@ -31,3 +31,15 @@ jobs:
             texlive-science texlive-lang-italian texlive-fonts-recommended cm-super
       - name: Converte e compila il numero di esempio
         run: python3 tests/compila_pdf.py
+
+  gui:
+    name: Interfaccia grafica
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Installa Tk e uno schermo virtuale
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb xauth
+      - name: Prova della finestra (mouse, popup, esplora file, cambio tema)
+        run: xvfb-run -a python3 tests/prova_gui.py

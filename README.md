@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.1-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.2-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -183,6 +183,7 @@ A ogni modifica GitHub Actions riconverte il numero di esempio e controlla che i
 ```bash
 python3 -m unittest discover -s tests -v    # test della conversione
 python3 tests/compila_pdf.py                # compilazione completa del PDF
+xvfb-run -a python3 tests/prova_gui.py      # prova dell'interfaccia grafica
 ```
 
 Se una modifica al codice cambia volutamente il `.tex` prodotto, va rigenerato il file di riferimento in `tests/attesi/`.
@@ -208,6 +209,11 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.1.2**
+- Corretto il blocco della finestra quando il mouse passava sui pulsanti dell'intestazione (statistiche e giorno/notte): ogni ridisegno generava un nuovo evento del mouse, in un ciclo infinito.
+- Corretti gli errori «invalid command name … interruttore» dopo la chiusura del popup del nuovo numero.
+- Nuova prova automatica dell'interfaccia grafica su GitHub Actions (mouse sui pulsanti, popup, esplora file, cambio di tema).
 
 **1.1.1**
 - Corretto il blocco durante il download dei numeri arretrati: ogni download ha ora un limite di tempo (con un secondo tentativo), e mentre il programma lavora il pulsante **Converti** diventa **Interrompi**, con i secondi trascorsi accanto allo stato.

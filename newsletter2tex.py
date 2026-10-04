@@ -427,7 +427,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.1.1"
+VERSIONE = "1.1.2"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -2060,6 +2060,25 @@ def _finestra(prova=None, stato=None):
                 punti += [cx + r * math.cos(ang), cy + r * math.sin(ang)]
         return c.create_polygon(punti, **kw)
 
+    def traccia(widget, variabile, funzione):
+        # collega funzione() alle modifiche di variabile finché widget esiste;
+        # senza questo, chiudere un popup lasciava tracce verso widget distrutti
+        def chiama(*_):
+            try:
+                if widget.winfo_exists():
+                    funzione()
+            except tk.TclError:
+                pass
+        tid = variabile.trace_add("write", chiama)
+
+        def rimuovi(e):
+            if e.widget is widget:
+                try:
+                    variabile.trace_remove("write", tid)
+                except (tk.TclError, ValueError):
+                    pass
+        widget.bind("<Destroy>", rimuovi, add="+")
+
     class Pannello(tk.Canvas):
         "Contenitore con angoli arrotondati; .interno è il Frame dove mettere i widget."
 
@@ -2204,7 +2223,7 @@ def _finestra(prova=None, stato=None):
             et.pack(side="left", padx=(8, 0))
             for w in (self.c, et):
                 w.bind("<Button-1>", lambda e: self.var.set(not self.var.get()))
-            self.var.trace_add("write", lambda *a: self._disegna())
+            traccia(self, self.var, self._disegna)
             self._disegna()
 
         def _disegna(self):
@@ -2229,7 +2248,7 @@ def _finestra(prova=None, stato=None):
             et.pack(side="left", padx=(8, 0))
             for w in (self.c, et):
                 w.bind("<Button-1>", lambda e: self.var.set(not self.var.get()))
-            self.var.trace_add("write", lambda *a: self._disegna())
+            traccia(self, self.var, self._disegna)
             self._disegna()
 
         def _disegna(self):
@@ -2252,7 +2271,7 @@ def _finestra(prova=None, stato=None):
             super().__init__(parent, width=sum(self.larghezze) + 8, height=self.a + 8,
                              bg=parent["bg"], highlightthickness=0, cursor="hand2")
             self.bind("<Button-1>", self._click)
-            self.var.trace_add("write", lambda *a: self._disegna())
+            traccia(self, self.var, self._disegna)
             self._disegna()
 
         def _disegna(self):
@@ -2298,7 +2317,7 @@ def _finestra(prova=None, stato=None):
             self.e.bind("<FocusOut>", lambda e: self._fuoco(False))
             self.bind("<Button-1>", lambda e: self.e.focus_set())
             self.bind("<Configure>", lambda e: self._disegna())
-            variabile.trace_add("write", lambda *a: self._segnaposto())
+            traccia(self, variabile, self._segnaposto)
             self._segnaposto()
 
         def _fuoco(self, v):
@@ -2882,8 +2901,9 @@ def _finestra(prova=None, stato=None):
         destra_x = l - 24 - max(F["piccolo"].measure(f"Design {DESIGN}"),
                                 F["piccolo"].measure(f"versione {VERSIONE}")) - 34
         for nome, cx in (("tema", destra_x), ("stat", destra_x - 50)):
-            fondo = "#7A3A70" if sopra_testata.get(nome) else "#4A1A42"
-            c.create_oval(cx - 19, 44 - 19, cx + 19, 44 + 19, fill=fondo, outline="", tags=(nome,))
+            centri_testata[nome] = cx
+            fondo = "#7A3A70" if sopra_testata.get("nome") == nome else "#4A1A42"
+            c.create_oval(cx - 19, 44 - 19, cx + 19, 44 + 19, fill=fondo, outline="", tags=(nome, nome + "_fondo"))
             chiaro = "#F7E7F2"
             if nome == "stat":
                 for x1, alto in ((-8, 7), (-2, 14), (4, 10)):
@@ -2891,7 +2911,8 @@ def _finestra(prova=None, stato=None):
                                        outline="", tags=(nome,))
             elif tema == "chiaro":           # luna: passa alla modalità notte
                 c.create_oval(cx - 8, 44 - 8, cx + 8, 44 + 8, fill=chiaro, outline="", tags=(nome,))
-                c.create_oval(cx - 3, 44 - 12, cx + 11, 44 + 2, fill=fondo, outline="", tags=(nome,))
+                c.create_oval(cx - 3, 44 - 12, cx + 11, 44 + 2, fill=fondo, outline="",
+                              tags=(nome, nome + "_fondo"))
             else:                            # sole: passa alla modalità giorno
                 c.create_oval(cx - 5, 44 - 5, cx + 5, 44 + 5, fill="#FFD27A", outline="", tags=(nome,))
                 import math
@@ -2901,24 +2922,41 @@ def _finestra(prova=None, stato=None):
                                   44 + 11 * math.sin(a), fill="#FFD27A", width=2, capstyle="round",
                                   tags=(nome,))
 
-    sopra_testata = {}
+    # Il mouse si segue per posizione sull'intera intestazione: niente eventi sulle singole
+    # forme (ricrearle sotto il puntatore generava un ciclo infinito di ridisegni).
+    sopra_testata = {"nome": None}
+    centri_testata = {}
 
-    def evidenzia_testata(nome, valore, e=None):
-        sopra_testata[nome] = valore
-        testata.configure(cursor="hand2" if valore else "")
-        disegna_testata()
-        if valore and e is not None:
+    def pulsante_sotto(x, y):
+        for nome, cx in centri_testata.items():
+            if (x - cx) ** 2 + (y - 44) ** 2 <= 19 ** 2:
+                return nome
+        return None
+
+    def evidenzia_testata(nome):
+        if nome == sopra_testata["nome"]:
+            return
+        sopra_testata["nome"] = nome
+        for n in centri_testata:
+            testata.itemconfigure(n + "_fondo", fill="#7A3A70" if n == nome else "#4A1A42")
+        testata.configure(cursor="hand2" if nome else "")
+        if nome:
             testo = {"stat": "Statistiche dei bug da Launchpad",
                      "tema": "Modalità notte" if tema == "chiaro" else "Modalità giorno"}[nome]
-            suggerimento.mostra(testo, e.x_root - 40, e.y_root + 26)
+            suggerimento.mostra(testo, testata.winfo_rootx() + centri_testata[nome] - 60,
+                                testata.winfo_rooty() + 70)
         else:
             suggerimento.nascondi()
 
-    for nome in ("tema", "stat"):
-        testata.tag_bind(nome, "<Enter>", lambda e, n=nome: evidenzia_testata(n, True, e))
-        testata.tag_bind(nome, "<Leave>", lambda e, n=nome: evidenzia_testata(n, False))
-    testata.tag_bind("tema", "<Button-1>", lambda e: cambia_tema())
-    testata.tag_bind("stat", "<Button-1>", lambda e: mostra_statistiche())
+    def clic_testata(e):
+        nome = pulsante_sotto(e.x, e.y)
+        if nome:
+            evidenzia_testata(None)
+            (cambia_tema if nome == "tema" else mostra_statistiche)()
+
+    testata.bind("<Motion>", lambda e: evidenzia_testata(pulsante_sotto(e.x, e.y)))
+    testata.bind("<Leave>", lambda e: evidenzia_testata(None))
+    testata.bind("<Button-1>", clic_testata)
     testata.bind("<Configure>", disegna_testata)
 
     corpo = tk.Frame(root, bg=SFONDO, padx=22, pady=18)
