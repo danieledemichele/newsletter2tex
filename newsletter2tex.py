@@ -63,6 +63,8 @@ CONFIG_PREDEFINITA = {
     # Usati solo se il .txt non contiene "Ha inoltre collaborato all'edizione:"
     "edizione_predefinita": [],
     "tema": "",                                             # "chiaro", "scuro" o "" = come Ubuntu
+    "notifiche": True,                                      # avviso dei nuovi numeri (lunedì sera/martedì)
+    "aggiornamenti_automatici": True,                       # aggiornamento da GitHub all'avvio
 }
 CONFIG_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                            "newsletter2tex", "config.json")
@@ -427,7 +429,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.1.2"
+VERSIONE = "1.2.0"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -1776,7 +1778,8 @@ def leggi_persone(valori):
 
 
 def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
-           edizione=None, cfg=None, avanzamento=print, pronto=None, verifica_statistiche=True):
+           edizione=None, cfg=None, avanzamento=print, pronto=None, verifica_statistiche=True,
+           copia_txt=False):
     """Scarica/legge, converte, salva e (opzionale) compila.
     Ritorna un dizionario con percorsi, log e codice (0 ok, 1 errori nel log)."""
     cfg = cfg or carica_config()
@@ -1788,6 +1791,10 @@ def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
         nome_file = os.path.basename(percorso)
         origine = f"file locale {os.path.abspath(percorso)}"
         scaricato = False
+        if copia_txt:       # testo salvato dal browser: lo archiviamo con il nome standard
+            mi = re.search(r"Questo è il numero\s*'*\s*(\d+)\s*'*\s*del\s*'*\s*(\d{4})", testo)
+            if mi:
+                nome_file = f"NewsletterItaliana_{mi.group(2)}.{int(mi.group(1)):03d}.txt"
     else:
         if pronto:
             anno, num, testo = pronto
@@ -1821,7 +1828,7 @@ def esegui(file=None, numero=None, output=None, pdf=False, salva_txt=True,
     percorso_tex = os.path.join(cartella, base + ".tex")
     with open(percorso_tex, "w", encoding="utf-8") as f:
         f.write(tex)
-    if scaricato and salva_txt:
+    if (scaricato or copia_txt) and salva_txt:
         with open(os.path.join(cartella, nome_file), "w", encoding="utf-8") as f:
             f.write(testo)
     trova_immagini(cartella, log)
@@ -1854,6 +1861,261 @@ MSG_BLOCCATO = ("Il wiki ha rifiutato il download automatico ({e}).\n\n"
 # ---------------------------------------------------------------------------
 # GUI (tkinter)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# AGGIORNAMENTI DA GITHUB
+# ---------------------------------------------------------------------------
+
+URL_REPO = "https://github.com/danieledemichele/newsletter2tex"
+URL_SCRIPT = "https://raw.githubusercontent.com/danieledemichele/newsletter2tex/main/newsletter2tex.py"
+PERCORSO_INSTALLATO = os.path.expanduser("~/.local/bin/newsletter2tex")
+
+
+def versione_tupla(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+
+
+def _scarica_url(url, limite=None, timeout=20):
+    intestazioni = {"User-Agent": USER_AGENT, "Cache-Control": "no-cache"}
+    if limite:
+        intestazioni["Range"] = f"bytes=0-{limite - 1}"
+    req = urllib.request.Request(url, headers=intestazioni)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read(limite) if limite else r.read()
+
+
+def versione_remota():
+    "Versione pubblicata su GitHub (legge solo l'inizio del file)."
+    testo = _scarica_url(URL_SCRIPT, limite=65536).decode("utf-8", errors="replace")
+    m = re.search(r'^VERSIONE = "([\d.]+)"', testo, re.M)
+    return m.group(1) if m else None
+
+
+def programma_installato():
+    "True se è in esecuzione la copia installata da installa.sh (l'unica che si aggiorna da sola)."
+    try:
+        return os.path.realpath(sys.argv[0]) == os.path.realpath(PERCORSO_INSTALLATO)
+    except OSError:
+        return False
+
+
+def aggiorna_programma(destinazione=PERCORSO_INSTALLATO):
+    """Scarica da GitHub la versione più recente e sostituisce la copia installata.
+    Il file viene verificato prima di sostituire quello vecchio. Ritorna la nuova versione,
+    oppure None se quella installata è già la più recente."""
+    codice = _scarica_url(URL_SCRIPT, timeout=60)
+    testo = codice.decode("utf-8")
+    m = re.search(r'^VERSIONE = "([\d.]+)"', testo, re.M)
+    if not m or "def avvia_gui" not in testo or "def converti(" not in testo:
+        raise RuntimeError("Il file scaricato da GitHub non sembra newsletter2tex: aggiornamento annullato")
+    try:
+        compile(testo, destinazione, "exec")
+    except SyntaxError as e:
+        raise RuntimeError(f"Il file scaricato contiene un errore ({e}): aggiornamento annullato")
+    if versione_tupla(m.group(1)) <= versione_tupla(VERSIONE):
+        return None
+    temporaneo = destinazione + ".nuovo"
+    with open(temporaneo, "wb") as f:
+        f.write(codice)
+    os.chmod(temporaneo, 0o755)
+    os.replace(temporaneo, destinazione)      # sostituzione atomica: mai un file a metà
+    return m.group(1)
+
+
+# ---------------------------------------------------------------------------
+# BLOCCO ANTI-BOT: pagina nel browser, testo salvato in Scaricati
+# ---------------------------------------------------------------------------
+
+def cartelle_utente():
+    "Cartelle XDG dell'utente (Scrivania, Documenti, Scaricati…) da ~/.config/user-dirs.dirs."
+    trovate = {}
+    casa = os.path.expanduser("~")
+    try:
+        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.join(casa, ".config")),
+                               "user-dirs.dirs"), encoding="utf-8") as f:
+            for riga in f:
+                m = re.match(r'XDG_(\w+)_DIR="(.+)"', riga.strip())
+                if m:
+                    trovate[m.group(1)] = m.group(2).replace("$HOME", casa)
+    except OSError:
+        pass
+    return trovate
+
+
+def cartella_scaricati():
+    casa = os.path.expanduser("~")
+    for p in (cartelle_utente().get("DOWNLOAD"), os.path.join(casa, "Scaricati"),
+              os.path.join(casa, "Downloads")):
+        if p and os.path.isdir(p):
+            return p
+    return casa
+
+
+def url_raw(anno, num):
+    return f"{WIKI_IT}/{PAGINA_NEWSLETTER}/{anno}.{num:03d}?action=raw"
+
+
+def apri_nel_browser(url):
+    try:
+        subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        import webbrowser
+        webbrowser.open(url)
+
+
+def cerca_txt_salvato(cartella, dopo, anno=None, num=None):
+    """Il testo della newsletter salvato nella cartella dopo l'istante 'dopo' (il browser può
+    chiamarlo «2026.031», «2026.031.txt», «NewsletterItaliana_2026.031.txt»…). Se anno e num
+    sono indicati, deve essere proprio quel numero."""
+    try:
+        voci = sorted(os.scandir(cartella), key=lambda v: v.stat().st_mtime, reverse=True)
+    except OSError:
+        return None
+    for v in voci:
+        nome = v.name.lower()
+        if not v.is_file() or nome.endswith((".part", ".crdownload", ".tmp", ".download")):
+            continue
+        st = v.stat()
+        if st.st_mtime < dopo - 2:
+            break                                   # i successivi sono più vecchi
+        if st.st_size == 0 or st.st_size > 5 * 1024 * 1024:
+            continue
+        try:
+            with open(v.path, encoding="utf-8", errors="replace") as f:
+                testo = f.read()
+        except OSError:
+            continue
+        if not e_un_numero(testo):
+            continue
+        if anno and num:
+            m = re.search(r"Questo è il numero\s*'*\s*(\d+)\s*'*\s*del\s*'*\s*(\d{4})", testo)
+            if not m or (int(m.group(2)), int(m.group(1))) != (anno, num):
+                continue
+        return v.path
+    return None
+
+
+# ---------------------------------------------------------------------------
+# AVVISO DEI NUOVI NUMERI (timer di systemd + notifica desktop)
+# ---------------------------------------------------------------------------
+
+NOME_UNITA = "newsletter2tex-controllo"
+# il nuovo numero esce di solito tra il lunedì notte e il martedì
+ORARI_CONTROLLO = ("Mon 21:30", "Tue 08:15", "Tue 13:15", "Tue 19:15", "Wed 09:15")
+
+
+def cartella_systemd():
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+                        "systemd", "user")
+
+
+def testo_unita(script=PERCORSO_INSTALLATO):
+    servizio = ("[Unit]\nDescription=Newsletter Ubuntu-it: controllo dei nuovi numeri\n"
+                "After=network-online.target\n\n[Service]\nType=oneshot\n"
+                f"ExecStart=/usr/bin/env python3 {script} --notifica\nTimeoutStartSec=4h\n")
+    timer = ("[Unit]\nDescription=Newsletter Ubuntu-it: controllo il lunedì sera e il martedì\n\n[Timer]\n"
+             + "".join(f"OnCalendar={o}\n" for o in ORARI_CONTROLLO)
+             + "Persistent=true\nRandomizedDelaySec=10min\n\n[Install]\nWantedBy=timers.target\n")
+    return servizio, timer
+
+
+def _systemctl(*argomenti):
+    r = subprocess.run(["systemctl", "--user", *argomenti], capture_output=True, text=True, timeout=30)
+    return r.returncode, (r.stderr or r.stdout).strip()
+
+
+def imposta_notifiche(attive, script=PERCORSO_INSTALLATO):
+    "Attiva o disattiva il controllo automatico dei nuovi numeri. Ritorna un messaggio."
+    if not shutil.which("systemctl"):
+        raise RuntimeError("systemd non è disponibile: avviso dei nuovi numeri non attivabile")
+    cartella = cartella_systemd()
+    servizio_p = os.path.join(cartella, NOME_UNITA + ".service")
+    timer_p = os.path.join(cartella, NOME_UNITA + ".timer")
+    if attive:
+        os.makedirs(cartella, exist_ok=True)
+        servizio, timer = testo_unita(script)
+        for percorso, testo in ((servizio_p, servizio), (timer_p, timer)):
+            with open(percorso, "w", encoding="utf-8") as f:
+                f.write(testo)
+        _systemctl("daemon-reload")
+        _systemctl("enable", NOME_UNITA + ".timer")
+        collegamento = os.path.join(cartella, "timers.target.wants", NOME_UNITA + ".timer")
+        if not os.path.exists(collegamento):
+            raise RuntimeError("systemctl non ha abilitato il controllo automatico")
+        codice, _ = _systemctl("start", NOME_UNITA + ".timer")
+        if codice:      # es. installazione da SSH, senza sessione: partirà al prossimo accesso
+            return "Avviso dei nuovi numeri abilitato: sarà attivo dal prossimo accesso al desktop"
+        return "Avviso dei nuovi numeri attivo: controllo il lunedì sera e il martedì"
+    _systemctl("disable", "--now", NOME_UNITA + ".timer")
+    for percorso in (servizio_p, timer_p):
+        if os.path.exists(percorso):
+            os.remove(percorso)
+    _systemctl("daemon-reload")
+    return "Avviso dei nuovi numeri disattivato"
+
+
+def notifiche_attive():
+    if not shutil.which("systemctl"):
+        return False
+    try:
+        return _systemctl("is-enabled", NOME_UNITA + ".timer")[1] == "enabled"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def invia_notifica(titolo, testo, azione=None):
+    "Notifica desktop; con azione restituisce 'apri' se l'utente la sceglie."
+    if not shutil.which("notify-send"):
+        return None
+    icona = PERCORSO_ICONA if os.path.exists(PERCORSO_ICONA) else "newsletter2tex"
+    base = ["notify-send", "-a", "Newsletter Ubuntu-it", "-i", icona, titolo, testo]
+    if azione:
+        try:
+            r = subprocess.run(base + ["-A", f"apri={azione}"], capture_output=True, text=True, timeout=4 * 3600)
+            if r.returncode == 0:
+                return r.stdout.strip() or None
+        except subprocess.TimeoutExpired:
+            return None
+        # notify-send senza supporto per le azioni (Ubuntu 22.04): notifica semplice
+    subprocess.run(base, capture_output=True, timeout=30)
+    return None
+
+
+def file_notificati():
+    return os.path.join(os.path.dirname(CONFIG_FILE), "notificati.json")
+
+
+def notifica_nuovi_numeri():
+    """Eseguito dal timer: se c'è un numero nuovo non ancora convertito e non ancora
+    segnalato, manda una notifica (una sola volta per numero)."""
+    cfg = carica_config()
+    try:
+        n = controlla_novita(cfg)
+    except Exception:
+        return False                       # wiki irraggiungibile: si riproverà al prossimo orario
+    if not n["mancanti"]:
+        return False
+    chiave = f"{n['anno']}.{n['numero']:03d}"
+    try:
+        with open(file_notificati(), encoding="utf-8") as f:
+            notificati = json.load(f)
+    except (OSError, ValueError):
+        notificati = []
+    if chiave in notificati:
+        return False
+    notificati = (notificati + [chiave])[-30:]
+    os.makedirs(os.path.dirname(file_notificati()), exist_ok=True)
+    with open(file_notificati(), "w", encoding="utf-8") as f:
+        json.dump(notificati, f)
+    articoli = len(n["anteprima"]["articoli"])
+    testo = (f"{n['anteprima']['settimana'].capitalize()} · {articoli} articoli.\n"
+             "Apri Newsletter Ubuntu-it per convertirlo.")
+    scelta = invia_notifica(f"È uscito il numero {n['numero']:03d}/{n['anno']}", testo, azione="Apri")
+    if scelta == "apri":
+        subprocess.Popen([sys.executable, os.path.realpath(sys.argv[0]), "--gui"], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True
+
 
 PALETTE = {
     "chiaro": {
@@ -1921,27 +2183,40 @@ def miniatura_pdf(pdf, larghezza=104):
 
 
 def avvia_gui(prova=None):
-    # Il cambio di tema ricostruisce la finestra conservando lo stato
-    stato = None
-    while True:
-        stato = _finestra(prova, stato)
-        if not stato:
-            break
-
-
-def _finestra(prova=None, stato=None):
     try:
         import tkinter as tk
-        import tkinter.font as tkfont
-        from tkinter import ttk, messagebox
     except ImportError:
         sys.exit("Per l'interfaccia grafica serve tkinter:  sudo apt install python3-tk")
+    # className: la dock/barra delle applicazioni associa la finestra al lanciatore
+    root = tk.Tk(className="newsletter2tex")
+    root.title("Newsletter Ubuntu-it")
+    root.minsize(1000, 600)
+    root.geometry(f"1100x{min(800, root.winfo_screenheight() - 80)}")
+    root._icone = [tk.PhotoImage(data=base64.b64encode(icona_png(g)).decode()) for g in (True, False)]
+    root.iconphoto(True, *root._icone)
+    _finestra(root, prova, None)
+    root.mainloop()
+
+
+def _finestra(root, prova=None, stato=None):
+    # Costruisce (o ricostruisce, al cambio di tema) il contenuto della finestra
+    import tkinter as tk
+    import tkinter.font as tkfont
+    from tkinter import ttk, messagebox
     import queue
     import threading
 
+    for w in root.winfo_children():
+        if not getattr(w, "_velo", False):
+            w.destroy()
+    for evento in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
+        root.unbind_all(evento)
+
     stato = stato or {}
-    riavvio = {"stato": None}
     cfg = carica_config()
+    root_generazione = root.__dict__.setdefault("_generazione", [0])
+    root_generazione[0] += 1
+    generazione = root_generazione[0]
     tema = stato.get("tema") or cfg.get("tema") or tema_di_sistema()
     if tema not in PALETTE:
         tema = "chiaro"
@@ -1974,12 +2249,7 @@ def _finestra(prova=None, stato=None):
     REFUSO_TESTO, REFUSO_TENUE = P["REFUSO_TESTO"], P["REFUSO_TENUE"]
 
     casa = os.path.expanduser("~")
-    # className: la dock/barra delle applicazioni associa la finestra al lanciatore
-    root = tk.Tk(className="newsletter2tex")
-    root.title("Newsletter Ubuntu-it")
     root.configure(bg=SFONDO)
-    root.minsize(1000, 600)
-    root.geometry(stato.get("geometria") or f"1100x{min(800, root.winfo_screenheight() - 80)}")
 
     immagini = {}   # riferimenti alle PhotoImage (altrimenti il garbage collector le cancella)
 
@@ -1988,7 +2258,6 @@ def _finestra(prova=None, stato=None):
             immagini[grande] = tk.PhotoImage(data=base64.b64encode(icona_png(grande)).decode())
         return immagini[grande]
 
-    root.iconphoto(True, immagine_icona(True), immagine_icona(False))
 
     famiglie = {f.lower(): f for f in tkfont.families(root)}
     sans = next((famiglie[f.lower()] for f in ("Ubuntu", "Ubuntu Sans", "Cantarell", "Noto Sans", "DejaVu Sans")
@@ -2501,17 +2770,7 @@ def _finestra(prova=None, stato=None):
     immagini["file"] = icona_file("#D0CAC4")
 
     # --- esplora file ----------------------------------------------------------------
-    def cartelle_xdg():
-        trovate = {}
-        try:
-            with open(os.path.expanduser("~/.config/user-dirs.dirs"), encoding="utf-8") as f:
-                for riga in f:
-                    m = re.match(r'XDG_(\w+)_DIR="(.+)"', riga.strip())
-                    if m:
-                        trovate[m.group(1)] = m.group(2).replace("$HOME", casa)
-        except OSError:
-            pass
-        return trovate
+    cartelle_xdg = cartelle_utente
 
     def posizioni():
         xdg = cartelle_xdg()
@@ -2959,6 +3218,27 @@ def _finestra(prova=None, stato=None):
     testata.bind("<Button-1>", clic_testata)
     testata.bind("<Configure>", disegna_testata)
 
+    banner = tk.Frame(root, bg=ARANCIO_TENUE)
+    banner_testo = tk.StringVar()
+    tk.Frame(banner, bg=ARANCIO, width=4).pack(side="left", fill="y")
+    tk.Label(banner, textvariable=banner_testo, bg=ARANCIO_TENUE, fg=TESTO, font=F["bottone"], anchor="w",
+             padx=16, pady=10).pack(side="left", fill="x", expand=True)
+    banner_azioni = tk.Frame(banner, bg=ARANCIO_TENUE)
+    banner_azioni.pack(side="right", padx=(0, 14))
+
+    def mostra_banner(testo, azioni=()):
+        banner_testo.set(testo)
+        for w in banner_azioni.winfo_children():
+            w.destroy()
+        for i, (etichetta_b, comando) in enumerate(azioni):
+            Bottone(banner_azioni, etichetta_b, comando, tipo="primario" if i == 0 else "piatto",
+                    alto=32, padx=14).pack(side="left", padx=(8, 0), pady=6)
+        if not banner.winfo_ismapped():
+            banner.pack(fill="x", before=corpo)
+
+    def nascondi_banner():
+        banner.pack_forget()
+
     corpo = tk.Frame(root, bg=SFONDO, padx=22, pady=18)
     corpo.pack(fill="both", expand=True)
     corpo.columnconfigure(0, weight=0, minsize=480)
@@ -3088,8 +3368,32 @@ def _finestra(prova=None, stato=None):
     etichetta("Collaboratori all'edizione, se mancano nel .txt", 4, span=2)
     Campo(griglia, v_edizione, segnaposto="utente:Nome Cognome; utente:Nome Cognome").grid(
         row=5, column=0, columnspan=2, sticky="ew")
+    etichetta("Avvisi e aggiornamenti", 6, span=2)
+    v_notifiche = tk.BooleanVar(value=bool(cfg.get("notifiche", True)))
+    v_aggiorna = tk.BooleanVar(value=bool(cfg.get("aggiornamenti_automatici", True)))
+    i_notifiche = Interruttore(griglia, "Avvisami dei nuovi numeri (lunedì sera e martedì)", v_notifiche)
+    i_notifiche.grid(row=7, column=0, columnspan=2, sticky="w", pady=(2, 4))
+    i_aggiorna = Interruttore(griglia, "Aggiornamenti automatici da GitHub", v_aggiorna)
+    i_aggiorna.grid(row=8, column=0, columnspan=2, sticky="w", pady=(2, 0))
     tk.Label(griglia, text="Le impostazioni vengono salvate a ogni conversione.", bg=SCHEDA, fg=TENUE,
-             font=F["piccolo"]).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
+             font=F["piccolo"]).grid(row=9, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+    def cambia_notifiche():
+        attive = v_notifiche.get()
+        salva_config(dict(carica_config(), notifiche=attive))
+        if not os.path.exists(PERCORSO_INSTALLATO):
+            scrivi("Avviso dei nuovi numeri: installa prima il programma con «sh installa.sh».", "AVVISO")
+            return
+        try:
+            scrivi(imposta_notifiche(attive), "INFO", prompt=True)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            scrivi(f"Avviso dei nuovi numeri: {e}", "AVVISO")
+
+    def cambia_aggiornamenti():
+        salva_config(dict(carica_config(), aggiornamenti_automatici=v_aggiorna.get()))
+
+    traccia(i_notifiche, v_notifiche, cambia_notifiche)
+    traccia(i_aggiorna, v_aggiorna, cambia_aggiornamenti)
 
     def alterna_impostazioni(_=None):
         v_aperte.set(not v_aperte.get())
@@ -3290,6 +3594,8 @@ def _finestra(prova=None, stato=None):
             if v_pdf_utente.get().strip() or v_pdf_nome.get().strip():
                 nuova["realizzato_pdf"] = [[v_pdf_utente.get().strip(), v_pdf_nome.get().strip()]]
             nuova["edizione_predefinita"] = [list(x) for x in leggi_persone(v_edizione.get())]
+            nuova["notifiche"] = v_notifiche.get()
+            nuova["aggiornamenti_automatici"] = v_aggiorna.get()
         except Errore as e:
             messagebox.showerror("Impostazioni", str(e), parent=root)
             return False
@@ -3297,10 +3603,18 @@ def _finestra(prova=None, stato=None):
         return True
 
     # --- controllo dei nuovi numeri ---------------------------------------------------
-    novita = {"dati": None, "in_corso": False}
+    novita = {"dati": None, "in_corso": False, "segnalati": set(stato.get("segnalati") or ())}
+
+    def scansione_periodica():
+        # a programma aperto ricontrolla il wiki ogni 45 minuti, senza disturbare se si sta lavorando
+        if not root.winfo_exists() or root_generazione[0] != generazione:
+            return
+        if lavoro_attivo["coda"] is None and root.grab_current() is None:
+            avvia_controllo(periodico=True)
+        root.after(45 * 60 * 1000, scansione_periodica)
     coda_controllo = queue.Queue()
 
-    def avvia_controllo(manuale=False, poi=None):
+    def avvia_controllo(manuale=False, poi=None, periodico=False):
         if novita["in_corso"]:
             return
         if manuale and not leggi_impostazioni():
@@ -3322,6 +3636,8 @@ def _finestra(prova=None, stato=None):
         threading.Thread(target=lavora, daemon=True).start()
 
         def attendi():
+            if root_generazione[0] != generazione:
+                return          # finestra ricostruita (cambio di tema) nel frattempo
             try:
                 tipo, dato = coda_controllo.get_nowait()
             except queue.Empty:
@@ -3344,7 +3660,14 @@ def _finestra(prova=None, stato=None):
                     v_wiki2.set(dato["anteprima"]["settimana"].capitalize())
                 if poi:
                     poi()
+                elif periodico:
+                    if dato["mancanti"] and dato["numero"] not in novita["segnalati"]:
+                        novita["segnalati"].add(dato["numero"])
+                        mostra_banner(f"È uscito il numero {dato['numero']:03d}/{dato['anno']} della newsletter.",
+                                      [("Mostra", lambda: (nascondi_banner(), mostra_novita(dato))),
+                                       ("Chiudi", nascondi_banner)])
                 elif dato["mancanti"] or manuale:
+                    novita["segnalati"].add(dato["numero"])
                     mostra_novita(dato)
             else:
                 novita["dati"] = None
@@ -3445,7 +3768,7 @@ def _finestra(prova=None, stato=None):
     lavoro_attivo = {"coda": None, "stop": None, "inizio": 0.0, "ultimo": ""}
 
     def lavoro(lista_parametri, coda, stop):
-        for etichetta_n, parametri in lista_parametri:
+        for indice, (etichetta_n, parametri) in enumerate(lista_parametri):
             if stop.is_set():
                 break
             try:
@@ -3455,7 +3778,8 @@ def _finestra(prova=None, stato=None):
                     r["miniatura"] = miniatura_pdf(r["pdf"])
                 coda.put(("risultato", r))
             except WikiBloccato as e:
-                coda.put(("bloccato", str(e)))
+                coda.put(("bloccato", {"messaggio": str(e), "voce": (etichetta_n, parametri),
+                                       "resto": lista_parametri[indice + 1:]}))
                 break
             except (Errore, RuntimeError, OSError, urllib.error.URLError) as e:
                 coda.put(("errore", f"{etichetta_n}: {e}" if etichetta_n else str(e)))
@@ -3515,11 +3839,36 @@ def _finestra(prova=None, stato=None):
                 elif tipo == "risultato":
                     mostra_risultato(dato)
                 elif tipo == "bloccato":
-                    totali["fallimenti"] += 1
-                    v_stato.set("Download bloccato dal wiki.")
-                    scrivi(MSG_BLOCCATO.format(e=dato), "ERRORE")
-                    messagebox.showwarning("Download bloccato", MSG_BLOCCATO.format(e=dato), parent=root)
-                    v_sorgente.set("file")
+                    etichetta_b, parametri_b = dato["voce"]
+                    m = re.match(r"^(\d{4})\D?(\d{1,3})$", str(parametri_b.get("numero", "")).strip())
+                    if not m:
+                        totali["fallimenti"] += 1
+                        v_stato.set("Download bloccato dal wiki.")
+                        scrivi(MSG_BLOCCATO.format(e=dato["messaggio"]), "ERRORE")
+                        messagebox.showwarning("Download bloccato", MSG_BLOCCATO.format(e=dato["messaggio"]),
+                                               parent=root)
+                        v_sorgente.set("file")
+                        continue
+                    anno_b, num_b = int(m.group(1)), int(m.group(2))
+                    lavoro_attivo["coda"] = None          # il lavoro riparte dopo il salvataggio dal browser
+                    fine_lavoro()
+                    barra.ferma(AMBRA)
+                    v_stato.set(f"In attesa del numero {num_b:03d}/{anno_b} dal browser…")
+                    scrivi(f"Il wiki ha bloccato il download di {anno_b}.{num_b:03d}: apro la pagina nel "
+                           "browser e attendo il file in Scaricati.", "AVVISO")
+                    resto = dato["resto"]
+
+                    def riprendi(percorso, etichetta_b=etichetta_b, resto=resto):
+                        if not percorso:
+                            esito_barra["colore"] = AMBRA
+                            v_stato.set("Conversione annullata.")
+                            scrivi("Conversione annullata: nessun file salvato dal browser.", "AVVISO")
+                            return
+                        scrivi(f"Trovato il testo salvato: {os.path.basename(percorso)}", "OK")
+                        avvia_lavoro([(etichetta_b, {"file": percorso, "copia_txt": True})] + list(resto),
+                                     continua=True)
+                    root.after(50, lambda: attendi_dal_browser(anno_b, num_b, riprendi))
+                    return
                 elif tipo == "errore":
                     totali["fallimenti"] += 1
                     scrivi("Errore: " + dato, "ERRORE")
@@ -3576,20 +3925,21 @@ def _finestra(prova=None, stato=None):
             colore_pallino(VERDE)
             v_wiki.set(f"Sei aggiornato: {d['numero']:03d}/{d['anno']} già convertito")
 
-    def avvia_lavoro(lista_parametri):
+    def avvia_lavoro(lista_parametri, continua=False):
         for _, p in lista_parametri:
             p.update({"pdf": v_pdf.get(), "salva_txt": v_txt.get(), "cfg": dict(cfg)})
-        pulisci()
+        if not continua:
+            pulisci()
+            for k in totali:
+                totali[k] = 0
+            risultato.clear()
+            anteprima_f.pack_forget()
+            mostra_gettoni(0, 0, mostra_ok=False)
         try:
             salva_config(cfg)
         except OSError as e:
             scrivi(f"Impostazioni non salvate: {e}", "AVVISO")
-        for k in totali:
-            totali[k] = 0
-        risultato.clear()
-        anteprima_f.pack_forget()
         esito_barra["colore"] = None
-        mostra_gettoni(0, 0, mostra_ok=False)
         for b in (b_cartella, b_aprilog, b_apripdf):
             b.stato(False)
         coda, stop = queue.Queue(), threading.Event()
@@ -3633,6 +3983,156 @@ def _finestra(prova=None, stato=None):
                 if not v_file.get().strip():
                     return
             avvia_lavoro([(None, {"file": v_file.get().strip()})])
+
+    # --- blocco anti-bot: il testo arriva dal browser ---------------------------------------
+    def attendi_dal_browser(anno, num, poi):
+        url = url_raw(anno, num)
+        scaricati = cartella_scaricati()
+        inizio = time.time()
+        esito = {"percorso": None, "dimensione": None}
+        apri_nel_browser(url)
+
+        top = finestra_modale("Il wiki ha bloccato il download", 600, 470)
+        top.configure(bg=SCHEDA)
+        testa = tk.Canvas(top, height=96, highlightthickness=0, bg=MELANZANA_SCURA)
+        testa.pack(fill="x")
+
+        def disegna(_=None):
+            testa.delete("all")
+            l = testa.winfo_width()
+            for i in range(0, l, 4):
+                t = i / max(l, 1)
+                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
+                                         int(0x1E + (0x6F - 0x1E) * t))
+                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
+            testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
+                              text="IL WIKI HA BLOCCATO IL DOWNLOAD AUTOMATICO")
+            testa.create_text(28, 62, anchor="w", fill="white", font=F["enorme"],
+                              text=f"Salva il numero {num:03d}/{anno} dal browser")
+        testa.bind("<Configure>", disegna)
+
+        corpo_b = tk.Frame(top, bg=SCHEDA, padx=28, pady=18)
+        corpo_b.pack(fill="both", expand=True)
+        for i, testo_passo in enumerate((
+                f"Ho aperto la pagina del numero {anno}.{num:03d} nel browser.",
+                f"Salvala con Ctrl+S nella cartella {scaricati.replace(casa, '~')}.",
+                "Il programma la trova da solo e riprende la conversione.")):
+            riga_p = tk.Frame(corpo_b, bg=SCHEDA)
+            riga_p.pack(fill="x", pady=5)
+            tondo = tk.Canvas(riga_p, width=28, height=28, bg=SCHEDA, highlightthickness=0)
+            tondo.create_oval(1, 1, 27, 27, fill=ARANCIO if i < 2 else SEGMENTATO, outline="")
+            tondo.create_text(14, 14, text=str(i + 1), fill="white" if i < 2 else TENUE, font=F["bottone"])
+            tondo.pack(side="left")
+            tk.Label(riga_p, text=testo_passo, bg=SCHEDA, fg=TESTO, font=F["testo"], anchor="w", justify="left",
+                     wraplength=480).pack(side="left", padx=(12, 0), fill="x")
+        v_attesa = tk.StringVar(value=f"In attesa del file in {scaricati.replace(casa, '~')}…")
+        tk.Label(corpo_b, textvariable=v_attesa, bg=SCHEDA, fg=TENUE, font=F["piccolo"], anchor="w").pack(
+            fill="x", pady=(16, 6))
+        barra_b = Avanzamento(corpo_b)
+        barra_b.pack(fill="x")
+        nota(corpo_b, "Il nome del file non conta: va bene quello proposto dal browser.").pack(anchor="w", pady=(8, 0))
+
+        tk.Frame(top, bg=BORDO, height=1).pack(fill="x")
+        piede_b = tk.Frame(top, bg=SCHEDA, padx=28, pady=14)
+        piede_b.pack(fill="x")
+
+        def scegli():
+            x = esplora("file", "Scegli il testo salvato dal browser", scaricati)
+            if x:
+                esito["percorso"] = x
+                top.destroy()
+        Bottone(piede_b, "Scegli il file…", scegli, alto=40).pack(side="right")
+        Bottone(piede_b, "Riapri la pagina", lambda: apri_nel_browser(url), alto=40).pack(side="right", padx=(0, 10))
+        Bottone(piede_b, "Annulla", top.destroy, tipo="piatto", alto=40).pack(side="left")
+
+        def osserva():
+            if not top.winfo_exists():
+                return
+            trovato = cerca_txt_salvato(scaricati, inizio, anno, num)
+            if trovato:
+                dimensione = os.path.getsize(trovato)
+                if esito["dimensione"] == (trovato, dimensione):      # dimensione stabile: salvataggio finito
+                    esito["percorso"] = trovato
+                    v_attesa.set(f"Trovato: {os.path.basename(trovato)}")
+                    barra_b.ferma(VERDE)
+                    top.after(500, top.destroy)
+                    return
+                esito["dimensione"] = (trovato, dimensione)
+            top.after(800, osserva)
+        barra_b.avvia()
+        top.after(800, osserva)
+        if prova_browser:
+            prova_browser(top, scaricati, inizio)
+        mostra_modale(top)
+        poi(esito["percorso"])
+
+    prova_browser = None
+
+    # --- aggiornamenti da GitHub -------------------------------------------------------
+    def riavvia_programma():
+        try:
+            root.destroy()
+        finally:
+            os.execv(sys.executable, [sys.executable, os.path.realpath(sys.argv[0]), "--gui"])
+
+    def controlla_aggiornamenti():
+        coda_a = queue.Queue()
+
+        def lavora():
+            try:
+                remota = versione_remota()
+                if not remota or versione_tupla(remota) <= versione_tupla(VERSIONE):
+                    return
+                if cfg.get("aggiornamenti_automatici", True) and programma_installato():
+                    coda_a.put(("aggiornato", aggiorna_programma() or remota))
+                else:
+                    coda_a.put(("disponibile", remota))
+            except Exception as e:      # senza rete o GitHub irraggiungibile: nessun disturbo
+                coda_a.put(("errore", str(e)))
+
+        threading.Thread(target=lavora, daemon=True).start()
+
+        def attendi():
+            if not root.winfo_exists() or root_generazione[0] != generazione:
+                return
+            try:
+                tipo, dato = coda_a.get_nowait()
+            except queue.Empty:
+                root.after(500, attendi)
+                return
+            if tipo == "aggiornato":
+                conto = {"s": 5, "attivo": True}
+
+                def piu_tardi():
+                    conto["attivo"] = False
+                    mostra_banner(f"Aggiornato alla versione {dato}: verrà usata al prossimo avvio.",
+                                  [("Riavvia ora", riavvia_programma), ("Chiudi", nascondi_banner)])
+
+                def scorri():
+                    if not conto["attivo"] or not root.winfo_exists() or root_generazione[0] != generazione:
+                        return
+                    libero = lavoro_attivo["coda"] is None and root.grab_current() is None
+                    if libero:
+                        conto["s"] -= 1
+                    if conto["s"] <= 0:
+                        riavvia_programma()
+                        return
+                    attesa = f"riavvio tra {conto['s']} s" if libero else "riavvio a lavoro finito"
+                    mostra_banner(f"Newsletter Ubuntu-it è stato aggiornato alla versione {dato} · {attesa}",
+                                  [("Riavvia ora", riavvia_programma), ("Più tardi", piu_tardi)])
+                    root.after(1000, scorri)
+                scorri()
+            elif tipo == "disponibile":
+                azioni = [("Apri GitHub", lambda: apri_nel_browser(URL_REPO)), ("Chiudi", nascondi_banner)]
+                if programma_installato():
+                    def aggiorna_ora():
+                        nascondi_banner()
+                        cfg["aggiornamenti_automatici"] = True
+                        controlla_aggiornamenti()
+                    azioni = [("Aggiorna ora", aggiorna_ora), ("Chiudi", nascondi_banner)]
+                mostra_banner(f"È disponibile la versione {dato} (questa è la {VERSIONE}).", azioni)
+        root.after(500, attendi)
 
     # --- statistiche dei bug -------------------------------------------------------------
     def mostra_statistiche():
@@ -3772,7 +4272,7 @@ def _finestra(prova=None, stato=None):
     # --- tema giorno/notte -----------------------------------------------------------------
     def raccogli_stato():
         return {
-            "tema": tema, "geometria": root.geometry(), "sorgente": v_sorgente.get(),
+            "tema": tema, "sorgente": v_sorgente.get(),
             "numero": v_numero.get(), "file": v_file.get(), "cartella": v_cartella.get(),
             "pdf": v_pdf.get(), "txt": v_txt.get(), "cura": v_cura.get(), "pdf_utente": v_pdf_utente.get(),
             "pdf_nome": v_pdf_nome.get(), "edizione": v_edizione.get(), "imp_aperte": v_aperte.get(),
@@ -3797,9 +4297,50 @@ def _finestra(prova=None, stato=None):
         if st["barra"] in (PALETTE[tema]["ROSSO"], PALETTE[tema]["VERDE"], PALETTE[tema]["AMBRA"]):
             st["barra"] = {PALETTE[tema]["ROSSO"]: "ROSSO", PALETTE[tema]["VERDE"]: "VERDE",
                            PALETTE[tema]["AMBRA"]: "AMBRA"}[st["barra"]]
-        riavvio["stato"] = st
+        st["segnalati"] = sorted(novita["segnalati"])
         suggerimento.nascondi()
-        root.destroy()
+        transizione(PALETTE[nuovo]["SFONDO"], lambda: _finestra(root, prova, st))
+
+    def transizione(colore, azione):
+        # Dissolvenza: un velo del colore del nuovo tema copre la finestra, il contenuto
+        # viene ricostruito sotto, poi il velo svanisce. Senza compositore: cambio diretto.
+        root.update_idletasks()
+        try:
+            velo = tk.Toplevel(root)
+            velo._velo = True
+            velo.overrideredirect(True)
+            velo.configure(bg=colore)
+            velo.geometry(f"{root.winfo_width()}x{root.winfo_height() - testata.winfo_height()}"
+                          f"+{root.winfo_rootx()}+{root.winfo_rooty() + testata.winfo_height()}")
+            velo.attributes("-alpha", 0.0)
+            velo.lift()
+        except tk.TclError:
+            azione()
+            return
+
+        def svanisci(alfa):
+            try:
+                if alfa <= 0:
+                    velo.destroy()
+                    return
+                velo.attributes("-alpha", alfa)
+                velo.lift()
+                root.after(16, svanisci, round(alfa - 0.12, 2))
+            except tk.TclError:
+                pass
+
+        def compari(alfa):
+            try:
+                velo.attributes("-alpha", min(alfa, 1.0))
+            except tk.TclError:
+                pass
+            if alfa < 1.0:
+                root.after(16, compari, round(alfa + 0.25, 2))
+                return
+            azione()
+            root.update_idletasks()
+            root.after(30, svanisci, 1.0)
+        compari(0.25)
 
     def ripristina():
         for var, chiave in ((v_sorgente, "sorgente"), (v_numero, "numero"), (v_file, "file"),
@@ -3839,6 +4380,11 @@ def _finestra(prova=None, stato=None):
 
     if stato:
         ripristina()
+
+    def imposta_browser(funzione):
+        nonlocal prova_browser
+        prova_browser = funzione
+
     if prova:   # solo per i test automatici
         def imposta(**kw):
             nonlocal prova_esplora, prova_novita
@@ -3847,12 +4393,15 @@ def _finestra(prova=None, stato=None):
         prova(root, {"sorgente": v_sorgente, "file": v_file, "converti": converti_click,
                      "impostazioni": alterna_impostazioni, "esplora": esplora,
                      "mostra_novita": mostra_novita, "imposta": imposta,
-                     "controllo": avvia_controllo, "tema": cambia_tema, "statistiche": mostra_statistiche, "filtro": alterna_filtro,
-                     "stato": stato})
+                     "controllo": avvia_controllo, "tema": cambia_tema, "statistiche": mostra_statistiche,
+                     "filtro": alterna_filtro, "stato": stato, "banner": mostra_banner,
+                     "attendi_browser": attendi_dal_browser, "aggiornamenti": controlla_aggiornamenti,
+                     "imposta_browser": imposta_browser, "avvia_lavoro": avvia_lavoro})
     elif not stato:
         root.after(600, avvia_controllo)
-    root.mainloop()
-    return riavvio["stato"]
+        root.after(1500, controlla_aggiornamenti)   # avvisa sempre; installa da solo se attivo
+    if not prova:
+        root.after(45 * 60 * 1000, scansione_periodica)
 
 
 # ---------------------------------------------------------------------------
@@ -3874,6 +4423,10 @@ def main():
     g.add_argument("-f", "--file", help="file .txt (sorgente wiki) da convertire")
     g.add_argument("-n", "--numero", help="numero da scaricare, es. 2026.031")
     g.add_argument("--gui", action="store_true", help="apre l'interfaccia grafica")
+    g.add_argument("--aggiorna", action="store_true", help="aggiorna il programma installato da GitHub")
+    g.add_argument("--notifiche", choices=("on", "off", "auto", "stato"),
+                   help="avviso dei nuovi numeri il lunedì sera e il martedì (timer di systemd)")
+    g.add_argument("--notifica", action="store_true", help=argparse.SUPPRESS)
     g.add_argument("--statistiche", action="store_true",
                    help="legge da Launchpad i bug aperti, critici e nuovi e stampa le righe per il wiki")
     g.add_argument("--controlla", action="store_true",
@@ -3895,6 +4448,28 @@ def main():
         return
     if args.esporta_icona:
         print(esporta_icona(os.path.expanduser(args.esporta_icona)))
+        return
+    if args.notifica:
+        notifica_nuovi_numeri()
+        return
+    if args.notifiche:
+        try:
+            if args.notifiche == "stato":
+                print("Avviso dei nuovi numeri: " + ("attivo" if notifiche_attive() else "non attivo"))
+                return
+            attive = args.notifiche == "on" or (args.notifiche == "auto" and carica_config().get("notifiche", True))
+            if args.notifiche in ("on", "off"):
+                salva_config(dict(carica_config(), notifiche=attive))
+            print(imposta_notifiche(attive))
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            sys.exit(f"Avviso dei nuovi numeri: {e}")
+        return
+    if args.aggiorna:
+        try:
+            nuova = aggiorna_programma()
+        except (RuntimeError, OSError, urllib.error.URLError) as e:
+            sys.exit(f"Aggiornamento non riuscito: {getattr(e, 'reason', e)}")
+        print(f"Aggiornato alla versione {nuova}" if nuova else f"Già aggiornato (versione {VERSIONE})")
         return
     if args.statistiche:
         cfg = carica_config()

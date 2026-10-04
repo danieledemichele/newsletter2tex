@@ -23,6 +23,7 @@ os.environ["HOME"] = casa
 os.environ["XDG_CONFIG_HOME"] = os.path.join(casa, ".config")
 os.environ["XDG_CACHE_HOME"] = os.path.join(casa, ".cache")
 os.makedirs(os.path.join(casa, ".config", "newsletter2tex"))
+os.makedirs(os.path.join(casa, "2025"))          # cartella dell'anno della prova
 with open(os.path.join(casa, ".config", "newsletter2tex", "config.json"), "w") as f:
     json.dump({"tema": "chiaro", "cartella_lavoro": os.path.join(casa, "{anno}")}, f)
 
@@ -54,9 +55,13 @@ def prova(root, c):
     # ogni eccezione nelle callback di Tk è un errore della prova
     root.report_callback_exception = lambda *e: errori.append("".join(traceback.format_exception(*e)))
 
-    if giro["n"] == 2:     # finestra ricostruita dopo il cambio di tema
-        controlla(c["stato"].get("tema") == "scuro", "il cambio di tema ricostruisce la finestra in modalità notte")
-        root.after(800, root.destroy)
+    if giro["n"] == 1:
+        giro["finestra"] = root.winfo_id()
+    if giro["n"] == 2:     # contenuto ricostruito dopo il cambio di tema
+        controlla(c["stato"].get("tema") == "scuro", "il cambio di tema passa alla modalità notte")
+        controlla(root.winfo_id() == giro["finestra"] and root.winfo_exists(),
+                  "il cambio di tema avviene nella stessa finestra, senza chiuderla")
+        root.after(300, lambda: antibot(root, c))
         return
 
     testata = [w for w in tutti(root) if w.winfo_class() == "Canvas" and str(w["height"]) == "92"][0]
@@ -97,6 +102,35 @@ def prova(root, c):
     root.after(500, mouse_sui_pulsanti)
     root.after(1600, finestra_reattiva)
     root.after(2800, dopo_il_popup)
+
+
+def antibot(root, c):
+    # il wiki rifiuta il download: il programma apre il "browser", che salva la pagina in Scaricati
+    import threading
+    scaricati = os.path.join(casa, "Scaricati")
+    os.makedirs(scaricati, exist_ok=True)
+    N.scarica_raw = lambda *a, **k: (_ for _ in ()).throw(N.WikiBloccato("anti-bot simulato"))
+
+    def browser(url):
+        passi.append("ok: pagina aperta nel browser: " + url)
+
+        def salva():
+            time.sleep(1.5)
+            with open(os.path.join(scaricati, "2025.011"), "w", encoding="utf-8") as f:
+                f.write(TESTO)
+        threading.Thread(target=salva, daemon=True).start()
+    N.apri_nel_browser = browser
+    N.cartella_scaricati = lambda: scaricati
+
+    def verifica():
+        cartella = os.path.join(casa, "2025", "011")
+        fatti = os.listdir(cartella) if os.path.isdir(cartella) else []
+        controlla("Newsletter Ubuntu-it 011.2025.tex" in fatti,
+                  "dopo il blocco anti-bot il testo salvato dal browser viene convertito da solo")
+        controlla("NewsletterItaliana_2025.011.txt" in fatti, "il testo salvato viene archiviato col nome standard")
+        root.destroy()
+    c["avvia_lavoro"]([(None, {"numero": "2025.011", "pdf": False})])
+    root.after(9000, verifica)
 
 
 N.avvia_gui(prova)

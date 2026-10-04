@@ -270,5 +270,104 @@ class TestRete(unittest.TestCase):
                 N.scarica_raw("NewsletterItaliana/2026.029")
 
 
+class TestAggiornamenti(unittest.TestCase):
+    def script(self, versione, rotto=False):
+        testo = leggi(os.path.join(RADICE, "newsletter2tex.py")).replace(
+            f'VERSIONE = "{N.VERSIONE}"', f'VERSIONE = "{versione}"', 1)
+        return (testo + ("\ndef (\n" if rotto else "")).encode()
+
+    def test_confronto_versioni(self):
+        self.assertGreater(N.versione_tupla("1.10.0"), N.versione_tupla("1.9.9"))
+        self.assertEqual(N.versione_tupla("1.2"), (1, 2))
+
+    def test_installa_versione_nuova(self):
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "newsletter2tex")
+            open(dest, "w").write("vecchio")
+            with mock.patch.object(N, "_scarica_url", lambda *a, **k: self.script("99.0.0")):
+                self.assertEqual(N.aggiorna_programma(dest), "99.0.0")
+            self.assertIn('VERSIONE = "99.0.0"', leggi(dest))
+            self.assertTrue(os.access(dest, os.X_OK))
+
+    def test_non_installa_file_rotto_o_vecchio(self):
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "newsletter2tex")
+            open(dest, "w").write("vecchio")
+            with mock.patch.object(N, "_scarica_url", lambda *a, **k: self.script("99.0.0", rotto=True)):
+                with self.assertRaises(RuntimeError):
+                    N.aggiorna_programma(dest)
+            with mock.patch.object(N, "_scarica_url", lambda *a, **k: self.script("0.0.1")):
+                self.assertIsNone(N.aggiorna_programma(dest))
+            with mock.patch.object(N, "_scarica_url", lambda *a, **k: b"<html>errore</html>"):
+                with self.assertRaises(RuntimeError):
+                    N.aggiorna_programma(dest)
+            self.assertEqual(leggi(dest), "vecchio")     # il file installato resta intatto
+
+
+class TestBrowser(unittest.TestCase):
+    def test_trova_il_testo_salvato(self):
+        with tempfile.TemporaryDirectory() as d:
+            inizio = time_now = __import__("time").time()
+            open(os.path.join(d, "fattura.pdf"), "w").write("x")
+            open(os.path.join(d, "2026.031.part"), "w").write(leggi(ESEMPIO))      # download in corso
+            self.assertIsNone(N.cerca_txt_salvato(d, inizio))
+            altro = os.path.join(d, "2025.011")                                      # nome dato dal browser
+            open(altro, "w").write(leggi(ESEMPIO))
+            self.assertEqual(N.cerca_txt_salvato(d, inizio), altro)
+            self.assertEqual(N.cerca_txt_salvato(d, inizio, 2025, 11), altro)
+            self.assertIsNone(N.cerca_txt_salvato(d, inizio, 2026, 31))             # numero diverso
+            self.assertIsNone(N.cerca_txt_salvato(d, time_now + 60))                # file più vecchio
+
+
+class TestNotifiche(unittest.TestCase):
+    def test_unita_systemd(self):
+        servizio, timer = N.testo_unita("/home/prova/.local/bin/newsletter2tex")
+        self.assertIn("ExecStart=/usr/bin/env python3 /home/prova/.local/bin/newsletter2tex --notifica", servizio)
+        self.assertIn("OnCalendar=Mon 21:30", timer)
+        self.assertIn("OnCalendar=Tue 08:15", timer)
+        self.assertIn("Persistent=true", timer)
+
+    def test_attiva_e_disattiva(self):
+        def finto_enable(argomenti, d):
+            if argomenti[0] == "enable":
+                cartella = os.path.join(d, "systemd", "user", "timers.target.wants")
+                os.makedirs(cartella, exist_ok=True)
+                open(os.path.join(cartella, N.NOME_UNITA + ".timer"), "w").close()
+        with tempfile.TemporaryDirectory() as d:
+            chiamate = []
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": d}), \
+                    mock.patch.object(N.shutil, "which", lambda x: "/usr/bin/" + x), \
+                    mock.patch.object(N, "_systemctl", lambda *a: (chiamate.append(a), finto_enable(a, d), (0, ""))[2]):
+                N.imposta_notifiche(True, "/x/newsletter2tex")
+                timer = os.path.join(d, "systemd", "user", N.NOME_UNITA + ".timer")
+                self.assertTrue(os.path.exists(timer))
+                self.assertIn(("enable", N.NOME_UNITA + ".timer"), chiamate)
+                self.assertIn(("start", N.NOME_UNITA + ".timer"), chiamate)
+                N.imposta_notifiche(False)
+                self.assertFalse(os.path.exists(timer))
+
+    def test_una_notifica_per_numero(self):
+        novita = {"anno": 2026, "numero": 31, "mancanti": [31],
+                  "anteprima": {"settimana": "da lunedì 28 settembre a domenica 4 ottobre", "articoli": ["a", "b"]}}
+        inviate = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(N, "CONFIG_FILE", os.path.join(d, "config.json")), \
+                mock.patch.object(N, "controlla_novita", lambda cfg: novita), \
+                mock.patch.object(N, "invia_notifica", lambda *a, **k: inviate.append(a)):
+            self.assertTrue(N.notifica_nuovi_numeri())
+            self.assertFalse(N.notifica_nuovi_numeri())      # stesso numero: nessuna seconda notifica
+        self.assertEqual(len(inviate), 1)
+        self.assertIn("031/2026", inviate[0][0])
+
+    def test_nessuna_notifica_se_gia_convertito_o_senza_rete(self):
+        inviate = []
+        with mock.patch.object(N, "invia_notifica", lambda *a, **k: inviate.append(a)):
+            with mock.patch.object(N, "controlla_novita", lambda cfg: {"mancanti": []}):
+                self.assertFalse(N.notifica_nuovi_numeri())
+            with mock.patch.object(N, "controlla_novita", mock.Mock(side_effect=OSError("rete"))):
+                self.assertFalse(N.notifica_nuovi_numeri())
+        self.assertEqual(inviate, [])
+
+
 if __name__ == "__main__":
     unittest.main()

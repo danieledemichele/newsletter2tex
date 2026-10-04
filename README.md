@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.2-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.2.0-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -26,6 +26,8 @@ Ogni settimana gli articoli della newsletter vengono scritti sul wiki e poi impa
 - **Converte il markup wiki** in LaTeX: sezioni, grassetto e corsivo, link interni ed esterni, liste annidate, righe "Fonte", statistiche del gruppo sviluppo, crediti.
 - **Applica il template** dell'edizione PDF: frontespizio, colophon, indice, "Scrivi per la newsletter" e chiusura, con numero, anno, mese e date sempre aggiornati.
 - **Segnala cosa correggere** nel testo prima della pubblicazione: markup non riconosciuto, link senza testo, apici non chiusi, refusi. Tutto è ordinato per riga del `.txt`.
+- **Ti avvisa quando esce un nuovo numero** con una notifica sul desktop, il lunedì sera e il martedì, anche a programma chiuso.
+- **Si aggiorna da solo** da GitHub all'avvio.
 - **Legge le statistiche dei bug da Launchpad**, calcola le differenze con la settimana precedente e controlla che i numeri scritti nel `.txt` tornino.
 - **Funziona sia con l'interfaccia grafica sia da terminale.** È un unico file Python, senza dipendenze esterne.
 
@@ -40,7 +42,9 @@ cd newsletter2tex
 sh installa.sh
 ```
 
-`installa.sh` copia il programma in `~/.local/bin/newsletter2tex`, aggiunge **Newsletter Ubuntu-it** al menu delle applicazioni con la sua icona e segnala eventuali pacchetti mancanti. Per aggiornare basta un `git pull` seguito da un nuovo `sh installa.sh`.
+`installa.sh` copia il programma in `~/.local/bin/newsletter2tex`, aggiunge **Newsletter Ubuntu-it** al menu delle applicazioni con la sua icona, attiva l'avviso dei nuovi numeri e segnala eventuali pacchetti mancanti.
+
+Dalla versione 1.2.0 il programma **si aggiorna da solo**. A ogni avvio controlla su GitHub se c'è una versione più recente; se c'è, la scarica, verifica che il file sia integro, sostituisce la copia installata e si riavvia dopo qualche secondo. Se stai convertendo, aspetta che tu abbia finito. Con «Più tardi» la nuova versione verrà usata al prossimo avvio. L'aggiornamento automatico si può spegnere nelle impostazioni personali; da terminale si aggiorna con `newsletter2tex --aggiorna`.
 
 Per controllare quale versione è installata:
 
@@ -81,8 +85,21 @@ newsletter2tex --gui
   - le etichette colorate in alto funzionano da filtro: cliccandole si nascondono o si mostrano errori, avvisi o refusi;
   - anteprima della copertina del PDF, con numero di pagine e dimensione;
   - pulsanti per aprire la cartella, il log e il PDF.
-- **Modalità giorno/notte**: il pulsante con la luna (o il sole) nell'intestazione cambia tema senza perdere il lavoro in corso. Al primo avvio il programma segue l'impostazione chiaro/scuro di Ubuntu, poi ricorda la tua scelta.
+- **Modalità giorno/notte**: il pulsante con la luna (o il sole) nell'intestazione cambia tema con una dissolvenza, nella stessa finestra e senza perdere il lavoro in corso. Al primo avvio il programma segue l'impostazione chiaro/scuro di Ubuntu, poi ricorda la tua scelta.
 - **Schermi piccoli**: la colonna di sinistra scorre con la rotella del mouse e il pulsante **Converti** resta sempre visibile.
+
+## Avviso dei nuovi numeri
+
+Il nuovo numero esce di solito tra il lunedì notte e il martedì. `installa.sh` attiva un timer di sistema che controlla il wiki il **lunedì alle 21:30** e il **martedì alle 8:15, 13:15 e 19:15**, più un ultimo controllo il **mercoledì alle 9:15**. Se il computer era spento, il controllo viene recuperato alla riaccensione. Quando trova un numero non ancora convertito manda una notifica sul desktop, una sola volta per numero; dove Ubuntu lo permette, la notifica ha il pulsante **Apri** che avvia il programma.
+
+A programma aperto il wiki viene ricontrollato ogni 45 minuti e un nuovo numero compare come banner sotto l'intestazione.
+
+```bash
+newsletter2tex --notifiche stato    # è attivo?
+newsletter2tex --notifiche off      # disattiva (on per riattivare)
+```
+
+Lo stesso interruttore è nelle impostazioni personali.
 
 ## Statistiche dei bug
 
@@ -105,6 +122,8 @@ Durante la conversione il programma confronta anche le statistiche del `.txt` co
 ```bash
 newsletter2tex --controlla              # c'è un numero nuovo da convertire?
 newsletter2tex --statistiche            # righe per il wiki con i bug da Launchpad
+newsletter2tex --aggiorna               # aggiorna il programma da GitHub
+newsletter2tex --notifiche on|off|stato # avviso dei nuovi numeri
 newsletter2tex                          # scarica e converte l'ultimo numero
 newsletter2tex -n 2026.031              # scarica e converte un numero preciso
 newsletter2tex -f vecchio.txt           # converte un file .txt già salvato
@@ -170,11 +189,13 @@ Ogni conversione produce `Newsletter Ubuntu-it NNN.AAAA.conversione.log`, con i 
 
 ## Se il wiki blocca il download
 
-`wiki.ubuntu-it.org` usa una protezione anti-bot che a volte può rifiutare le richieste automatiche. In quel caso il programma lo segnala chiaramente:
+`wiki.ubuntu-it.org` usa una protezione anti-bot che a volte rifiuta le richieste automatiche. Nella finestra il programma lo gestisce da solo:
 
-1. apri `https://wiki.ubuntu-it.org/NewsletterItaliana/AAAA.NNN?action=raw` nel browser;
-2. salva la pagina come `.txt`;
-3. convertila con **File .txt** nella finestra, oppure con `newsletter2tex -f file.txt`.
+1. apre la pagina del numero nel browser;
+2. tu la salvi con **Ctrl+S** nella cartella Scaricati, con il nome che propone il browser;
+3. il programma si accorge del file, controlla che sia proprio quel numero e riprende la conversione da dove si era fermato.
+
+Da terminale: apri `https://wiki.ubuntu-it.org/NewsletterItaliana/AAAA.NNN?action=raw` nel browser, salva la pagina e usa `newsletter2tex -f file.txt`.
 
 ## Test
 
@@ -209,6 +230,12 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.2.0**
+- Il cambio giorno/notte avviene nella stessa finestra, con una dissolvenza, senza chiuderla e riaprirla.
+- Aggiornamento automatico da GitHub all'avvio, con verifica del file scaricato e riavvio da solo.
+- Blocco anti-bot: il programma apre la pagina nel browser, aspetta il file salvato in Scaricati e riprende da solo.
+- Avviso dei nuovi numeri con notifica desktop il lunedì sera e il martedì (timer di systemd), e controllo ogni 45 minuti a programma aperto.
 
 **1.1.2**
 - Corretto il blocco della finestra quando il mouse passava sui pulsanti dell'intestazione (statistiche e giorno/notte): ogni ridisegno generava un nuovo evento del mouse, in un ciclo infinito.

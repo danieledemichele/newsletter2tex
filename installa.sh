@@ -33,5 +33,7 @@ w=$(command -v newsletter2tex || true)
 if [ -n "$w" ] && [ "$w" != "$HOME/.local/bin/newsletter2tex" ]; then
     echo "Attenzione: il comando newsletter2tex punta a $w (una copia diversa): rimuovila."
 fi
+# avviso dei nuovi numeri (lunedì sera e martedì), se non è stato disattivato nelle impostazioni
+"$HOME/.local/bin/newsletter2tex" --notifiche auto || true
 echo "Avvio:  newsletter2tex --gui   oppure dal menu applicazioni (\"Newsletter Ubuntu-it\")."
 echo "Se l'icona nella dock non si aggiorna subito, esci e rientra nella sessione."
