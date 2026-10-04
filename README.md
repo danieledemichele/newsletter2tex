@@ -34,7 +34,7 @@ Ogni settimana gli articoli della newsletter vengono scritti sul wiki e poi impa
 Requisiti: Ubuntu (o un'altra distribuzione Linux), Python 3.8 o superiore, `python3-tk` per l'interfaccia grafica e una distribuzione TeX con il supporto per l'italiano per compilare il PDF.
 
 ```bash
-sudo apt install python3-tk texlive-latex-extra texlive-lang-italian
+sudo apt install python3-tk texlive-latex-extra texlive-science texlive-lang-italian
 git clone https://github.com/danieledemichele/newsletter2tex.git
 cd newsletter2tex
 sh installa.sh

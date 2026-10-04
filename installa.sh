@@ -15,8 +15,16 @@ echo "Installato: $("$HOME/.local/bin/newsletter2tex" --versione) in ~/.local/bi
 
 python3 -c "import tkinter" 2>/dev/null \
     || echo "Per l'interfaccia grafica manca tkinter:  sudo apt install python3-tk"
-command -v pdflatex >/dev/null \
-    || echo "Per il PDF manca pdflatex:  sudo apt install texlive-latex-extra texlive-lang-italian"
+if command -v pdflatex >/dev/null; then
+    mancanti=""
+    for f in cdpaddon.sty siunitx.sty italian.ldf subfig.sty emptypage.sty; do
+        kpsewhich "$f" >/dev/null 2>&1 || mancanti="$mancanti $f"
+    done
+    [ -z "$mancanti" ] \
+        || echo "Per il PDF mancano alcuni pacchetti LaTeX ($mancanti ):  sudo apt install texlive-latex-extra texlive-science texlive-lang-italian"
+else
+    echo "Per il PDF manca pdflatex:  sudo apt install texlive-latex-extra texlive-science texlive-lang-italian"
+fi
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) echo "Attenzione: ~/.local/bin non è nel PATH. Esci e rientra nella sessione, oppure usa ~/.local/bin/newsletter2tex" ;;

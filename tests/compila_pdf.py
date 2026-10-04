@@ -35,6 +35,8 @@ def main():
         errori = [m for l, _, m in r["voci"] if l == "ERRORE"]
         for e in errori:
             print("ERRORE:", e)
+            if os.environ.get("GITHUB_ACTIONS"):
+                print("::error::" + e.replace("\n", " "))
         if errori or not r["pdf"]:
             sys.exit("Compilazione del PDF non riuscita")
         print(f"PDF creato correttamente ({os.path.getsize(r['pdf']) // 1024} kB)")

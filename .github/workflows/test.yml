@@ -12,8 +12,8 @@ jobs:
       matrix:
         python: ["3.9", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Test della conversione
@@ -23,11 +23,11 @@ jobs:
     name: Compilazione del PDF
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Installa LaTeX
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends texlive-latex-extra \
-            texlive-lang-italian texlive-fonts-recommended cm-super
+            texlive-science texlive-lang-italian texlive-fonts-recommended cm-super
       - name: Converte e compila il numero di esempio
         run: python3 tests/compila_pdf.py

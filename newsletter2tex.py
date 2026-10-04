@@ -1636,7 +1636,7 @@ def trova_immagini(cartella, log):
 
 def compila_pdf(percorso_tex, log):
     if not shutil.which("pdflatex"):
-        log.errore("pdflatex non trovato: installa texlive (sudo apt install texlive-latex-extra)")
+        log.errore("pdflatex non trovato: installa texlive (sudo apt install texlive-latex-extra texlive-science texlive-lang-italian)")
         return None
     cartella, nome = os.path.split(percorso_tex)
     base = os.path.splitext(nome)[0]
