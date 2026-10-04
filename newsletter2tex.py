@@ -36,8 +36,10 @@ import datetime as dt
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -425,7 +427,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.1.0"
+VERSIONE = "1.1.1"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -513,19 +515,46 @@ class WikiBloccato(Exception):
     pass
 
 
-def scarica_raw(pagina):
-    """Restituisce il testo grezzo di una pagina, None se non esiste."""
+TIMEOUT_RETE = 20          # secondi senza risposta prima di considerare la richiesta persa
+SCADENZA_DOWNLOAD = 60     # durata massima di un download, anche se i dati arrivano a rilento
+
+
+def _e_timeout(e):
+    return isinstance(e, (socket.timeout, TimeoutError)) or isinstance(
+        getattr(e, "reason", None), (socket.timeout, TimeoutError))
+
+
+def scarica_raw(pagina, tentativi=2):
+    """Restituisce il testo grezzo di una pagina, None se non esiste.
+    Non resta mai appeso: oltre SCADENZA_DOWNLOAD secondi rinuncia con un errore chiaro."""
     url = f"{WIKI_IT}/{pagina}?action=raw"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            testo = r.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        if e.code in (401, 403, 429, 503):
-            raise WikiBloccato(f"HTTP {e.code} su {url}")
-        raise
+    for tentativo in range(1, tentativi + 1):
+        inizio = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT_RETE) as r:
+                parti = []
+                while True:
+                    if time.monotonic() - inizio > SCADENZA_DOWNLOAD:
+                        raise socket.timeout("download troppo lento")
+                    blocco = r.read(65536)
+                    if not blocco:
+                        break
+                    parti.append(blocco)
+            testo = b"".join(parti).decode("utf-8", errors="replace")
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code in (401, 403, 429, 503):
+                raise WikiBloccato(f"HTTP {e.code} su {url}")
+            raise
+        except (OSError, urllib.error.URLError) as e:
+            if not _e_timeout(e):
+                raise
+            if tentativo == tentativi:
+                raise RuntimeError(f"Il wiki non risponde: {pagina} non è arrivata dopo {tentativi} "
+                                   f"tentativi. Riprova tra qualche minuto oppure usa «File .txt».")
     inizio = testo.lstrip()[:600].lower()
     if inizio.startswith("<!doctype") or inizio.startswith("<html"):
         if "anubis" in testo.lower() or "oh noes" in testo.lower() or "not a bot" in testo.lower():
@@ -593,6 +622,7 @@ def trova_ultimo_numero(log):
             alto = medio
     num = basso
     testo = cache.get((anno, num)) or scarica_raw(f"{PAGINA_NEWSLETTER}/{anno}.{num:03d}")
+    trova_ultimo_numero.cache = cache     # i testi già scaricati si riusano per la conversione
     return anno, num, testo
 
 
@@ -756,18 +786,46 @@ def anteprima(testo):
     return info
 
 
+RE_FILE_NUMERO = re.compile(r"(\d{3})\.(\d{4})\.(tex|pdf)$", re.I)
+
+
+def numeri_convertiti(cfg, anno):
+    """Numeri dell'anno che hanno già un .tex o un .pdf nella cartella dell'anno, anche se creati
+    a mano prima di usare il programma (es. «Newsletter Ubuntu-it 029.2026.pdf» in qualsiasi
+    sottocartella fino a due livelli)."""
+    cartella = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(anno)))
+    trovati = set()
+    if not os.path.isdir(cartella):
+        return trovati
+    base = cartella.rstrip(os.sep).count(os.sep)
+    for radice, cartelle, files in os.walk(cartella):
+        if radice.count(os.sep) - base >= 2:
+            cartelle[:] = []
+        for f in files:
+            m = RE_FILE_NUMERO.search(f)
+            if m and int(m.group(2)) == anno:
+                trovati.add(int(m.group(1)))
+    return trovati
+
+
 def controlla_novita(cfg, log=None):
     """Ultimo numero sul wiki e numeri recenti non ancora convertiti in locale."""
     log = log or Log()
     anno, num, testo = trova_ultimo_numero(log)
+    fatti = numeri_convertiti(cfg, anno)
     mancanti = []
-    n = num
-    while n >= 1 and len(mancanti) < 6 and not os.path.exists(percorso_tex(cfg, anno, n)):
-        mancanti.append(n)
-        n -= 1
-    return {"anno": anno, "numero": num, "testo": testo,
-            "convertito": os.path.exists(percorso_tex(cfg, anno, num)),
-            "mancanti": mancanti, "anteprima": anteprima(testo),
+    if num not in fatti:
+        mancanti.append(num)
+        if fatti:   # proponiamo i numeri arretrati solo fino all'ultimo già convertito
+            n = num - 1
+            while n >= 1 and n not in fatti and len(mancanti) < 6:
+                mancanti.append(n)
+                n -= 1
+    testi = {n: t for (a, n), t in getattr(trova_ultimo_numero, "cache", {}).items()
+             if a == anno and t}
+    testi[num] = testo
+    return {"anno": anno, "numero": num, "testo": testo, "testi": testi,
+            "convertito": num in fatti, "mancanti": mancanti, "anteprima": anteprima(testo),
             "url": f"{WIKI_IT}/{PAGINA_NEWSLETTER}/{anno}.{num:03d}"}
 
 
@@ -2902,12 +2960,12 @@ def _finestra(prova=None, stato=None):
     v_wiki2 = tk.StringVar(value="")
     testi_wiki = tk.Frame(stato_wiki, bg=SCHEDA)
     testi_wiki.pack(side="left", fill="x", expand=True)
-    tk.Label(testi_wiki, textvariable=v_wiki, bg=SCHEDA, fg=TESTO, font=F["bottone"], anchor="w").pack(
-        fill="x")
+    tk.Label(testi_wiki, textvariable=v_wiki, bg=SCHEDA, fg=TESTO, font=F["bottone"], anchor="w",
+             justify="left", wraplength=270).pack(fill="x")
     tk.Label(testi_wiki, textvariable=v_wiki2, bg=SCHEDA, fg=TENUE, font=F["piccolo"], anchor="w",
-             justify="left").pack(fill="x")
+             justify="left", wraplength=270).pack(fill="x")
     b_controlla = Bottone(p, "Controlla ora", lambda: avvia_controllo(manuale=True))
-    b_controlla.pack(side="right")
+    b_controlla.pack(side="right", before=stato_wiki)   # il pulsante ha la precedenza sullo spazio
     pannelli["ultimo"] = p
 
     def colore_pallino(colore):
@@ -3346,10 +3404,12 @@ def _finestra(prova=None, stato=None):
     prova_novita = None
 
     # --- conversione -------------------------------------------------------------------
-    coda = queue.Queue()
+    lavoro_attivo = {"coda": None, "stop": None, "inizio": 0.0, "ultimo": ""}
 
-    def lavoro(lista_parametri):
+    def lavoro(lista_parametri, coda, stop):
         for etichetta_n, parametri in lista_parametri:
+            if stop.is_set():
+                break
             try:
                 coda.put(("inizio", etichetta_n))
                 r = esegui(avanzamento=lambda m: coda.put(("stato", m)), **parametri)
@@ -3397,7 +3457,9 @@ def _finestra(prova=None, stato=None):
         b_apripdf.stato(bool(dato.get("pdf")))
         mostra_gettoni(totali["errori"], totali["avvisi"], totali["refusi"], mostra_ok=False)
 
-    def controlla_coda():
+    def controlla_coda(coda):
+        if coda is not lavoro_attivo["coda"]:
+            return          # lavoro interrotto: i suoi messaggi non interessano più
         try:
             while True:
                 tipo, dato = coda.get_nowait()
@@ -3409,6 +3471,7 @@ def _finestra(prova=None, stato=None):
                     m = re.match(r"^(Creato|Log):\s+(.+?)(  \(.*\))?$", dato)
                     if m:
                         dato = f"{m.group(1)}: {os.path.basename(m.group(2))}"
+                    lavoro_attivo["ultimo"] = dato
                     v_stato.set(dato)
                     scrivi(dato, prompt=True)
                 elif tipo == "risultato":
@@ -3424,7 +3487,7 @@ def _finestra(prova=None, stato=None):
                     scrivi("Errore: " + dato, "ERRORE")
                     messagebox.showerror("Errore", dato, parent=root)
                 elif tipo == "fine":
-                    b_converti.stato(True)
+                    fine_lavoro()
                     e, a, r = totali["errori"], totali["avvisi"], totali["refusi"]
                     if totali["fallimenti"] and not risultato:
                         esito_barra["colore"] = ROSSO
@@ -3446,11 +3509,31 @@ def _finestra(prova=None, stato=None):
                     return
         except queue.Empty:
             pass
-        root.after(100, controlla_coda)
+        secondi = int(time.monotonic() - lavoro_attivo["inizio"])
+        if secondi >= 3 and lavoro_attivo["ultimo"]:
+            v_stato.set(f"{lavoro_attivo['ultimo']}   {secondi} s")
+        root.after(100, controlla_coda, coda)
+
+    def fine_lavoro():
+        lavoro_attivo["coda"] = None
+        b_converti.testo, b_converti.tipo, b_converti.comando = "Converti", "primario", converti_click
+        b_converti.stato(True)
+
+    def interrompi():
+        if lavoro_attivo["stop"]:
+            lavoro_attivo["stop"].set()
+        fine_lavoro()
+        esito_barra["colore"] = AMBRA
+        barra.ferma(AMBRA)
+        v_stato.set("Interrotto.")
+        scrivi("\nInterrotto. Il download o la conversione in corso proseguono in sottofondo e il "
+               "risultato verrà ignorato; i numeri successivi non verranno elaborati.", "AVVISO")
+        mostra_gettoni(totali["errori"], totali["avvisi"], totali["refusi"], mostra_ok=False)
 
     def aggiorna_dopo_conversione():
         d = novita["dati"]
-        d["mancanti"] = [n for n in d["mancanti"] if not os.path.exists(percorso_tex(cfg, d["anno"], n))]
+        fatti = numeri_convertiti(cfg, d["anno"])
+        d["mancanti"] = [n for n in d["mancanti"] if n not in fatti]
         if not d["mancanti"]:
             colore_pallino(VERDE)
             v_wiki.set(f"Sei aggiornato: {d['numero']:03d}/{d['anno']} già convertito")
@@ -3471,11 +3554,14 @@ def _finestra(prova=None, stato=None):
         mostra_gettoni(0, 0, mostra_ok=False)
         for b in (b_cartella, b_aprilog, b_apripdf):
             b.stato(False)
-        b_converti.stato(False)
+        coda, stop = queue.Queue(), threading.Event()
+        lavoro_attivo.update(coda=coda, stop=stop, inizio=time.monotonic(), ultimo="")
+        b_converti.testo, b_converti.tipo, b_converti.comando = "Interrompi", "secondario", interrompi
+        b_converti.stato(True)
         v_stato.set("Al lavoro…")
         barra.avvia()
-        threading.Thread(target=lavoro, args=(lista_parametri,), daemon=True).start()
-        root.after(100, controlla_coda)
+        threading.Thread(target=lavoro, args=(lista_parametri, coda, stop), daemon=True).start()
+        root.after(100, controlla_coda, coda)
 
     def converti_numeri(dato, numeri):
         if not leggi_impostazioni():
@@ -3483,14 +3569,15 @@ def _finestra(prova=None, stato=None):
         lista = []
         for n in numeri:
             etichetta_n = f"{n:03d}/{dato['anno']}" if len(numeri) > 1 else None
-            if n == dato["numero"]:
-                lista.append((etichetta_n, {"pronto": (dato["anno"], n, dato["testo"])}))
+            testo_noto = (dato.get("testi") or {}).get(n) or (dato["testo"] if n == dato["numero"] else None)
+            if testo_noto:
+                lista.append((etichetta_n, {"pronto": (dato["anno"], n, testo_noto)}))
             else:
                 lista.append((etichetta_n, {"numero": f"{dato['anno']}.{n:03d}"}))
         avvia_lavoro(lista)
 
     def converti_click():
-        if not b_converti.attivo or not leggi_impostazioni():
+        if lavoro_attivo["coda"] is not None or not b_converti.attivo or not leggi_impostazioni():
             return
         sorgente = v_sorgente.get()
         if sorgente == "ultimo":
@@ -3657,7 +3744,7 @@ def _finestra(prova=None, stato=None):
         }
 
     def cambia_tema():
-        if not b_converti.attivo:
+        if lavoro_attivo["coda"] is not None:
             messagebox.showinfo("Conversione in corso", "Aspetta la fine della conversione per cambiare tema.",
                                 parent=root)
             return

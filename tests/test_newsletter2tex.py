@@ -205,5 +205,70 @@ class TestCartelle(unittest.TestCase):
             self.assertTrue(os.path.exists(r["log"]))
 
 
+class TestNovita(unittest.TestCase):
+    def cartella(self, d, files):
+        for f in files:
+            percorso = os.path.join(d, "2026", f)
+            os.makedirs(os.path.dirname(percorso), exist_ok=True)
+            open(percorso, "w").close()
+        return dict(CFG, cartella_lavoro=os.path.join(d, "{anno}"))
+
+    def novita(self, cfg, ultimo=30):
+        with mock.patch.object(N, "trova_ultimo_numero", lambda log: (2026, ultimo, "testo")):
+            return N.controlla_novita(cfg)
+
+    def test_riconosce_file_fatti_a_mano(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cartella(d, ["Newsletter Ubuntu-it 028.2026.pdf",          # nella cartella dell'anno
+                                    "vecchi/Newsletter Ubuntu-it 029.2026.tex",   # in una sottocartella
+                                    "030/Newsletter Ubuntu-it 030.2026.tex"])     # struttura del programma
+            self.assertEqual(N.numeri_convertiti(cfg, 2026), {28, 29, 30})
+            n = self.novita(cfg, 31)
+            self.assertEqual(n["mancanti"], [31])
+
+    def test_arretrati_solo_fino_all_ultimo_convertito(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cartella(d, ["027/Newsletter Ubuntu-it 027.2026.tex"])
+            self.assertEqual(self.novita(cfg, 30)["mancanti"], [30, 29, 28])
+
+    def test_nessun_arretrato_se_la_cartella_e_vuota(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cartella(d, [])
+            self.assertEqual(self.novita(cfg, 30)["mancanti"], [30])
+
+    def test_gia_convertito(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cartella(d, ["Newsletter Ubuntu-it 030.2026.tex"])
+            n = self.novita(cfg, 30)
+            self.assertEqual(n["mancanti"], [])
+            self.assertTrue(n["convertito"])
+
+
+class TestRete(unittest.TestCase):
+    def test_download_che_non_risponde(self):
+        """Se il wiki non risponde il programma rinuncia con un messaggio chiaro, senza restare appeso."""
+        chiamate = []
+
+        def lento(req, timeout=None):
+            chiamate.append(timeout)
+            raise N.urllib.error.URLError(N.socket.timeout("timed out"))
+        with mock.patch.object(N.urllib.request, "urlopen", lento):
+            with self.assertRaises(RuntimeError) as ctx:
+                N.scarica_raw("NewsletterItaliana/2026.029")
+        self.assertEqual(len(chiamate), 2)
+        self.assertEqual(chiamate[0], N.TIMEOUT_RETE)
+        self.assertIn("non risponde", str(ctx.exception))
+
+    def test_download_a_rilento_interrotto(self):
+        class Rubinetto(io.BytesIO):
+            def read(self, n=-1):
+                return b"x"
+        orologio = iter(range(0, 10000, 30))
+        with mock.patch.object(N.urllib.request, "urlopen", lambda req, timeout=None: Rubinetto()), \
+                mock.patch.object(N.time, "monotonic", lambda: next(orologio)):
+            with self.assertRaises(RuntimeError):
+                N.scarica_raw("NewsletterItaliana/2026.029")
+
+
 if __name__ == "__main__":
     unittest.main()

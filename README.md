@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.0-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.1.1-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -208,6 +208,12 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.1.1**
+- Corretto il blocco durante il download dei numeri arretrati: ogni download ha ora un limite di tempo (con un secondo tentativo), e mentre il programma lavora il pulsante **Converti** diventa **Interrompi**, con i secondi trascorsi accanto allo stato.
+- I testi già scaricati durante il controllo del wiki vengono riusati, senza richiederli di nuovo.
+- I numeri già convertiti vengono riconosciuti anche se fatti a mano prima del programma (un `.tex` o `.pdf` con «NNN.AAAA» nel nome, nella cartella dell'anno o in una sua sottocartella). I numeri arretrati vengono proposti solo fino all'ultimo già convertito.
+- Il pulsante «Controlla ora» non viene più tagliato quando lo stato del wiki è lungo.
 
 **1.1.0**
 - Statistiche dei bug da Launchpad, con le righe pronte per il wiki e il controllo delle differenze durante la conversione.
