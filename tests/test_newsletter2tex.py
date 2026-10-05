@@ -205,6 +205,16 @@ class TestCartelle(unittest.TestCase):
             self.assertTrue(os.path.exists(r["log"]))
 
 
+    def test_senza_cartella_chiede_di_sceglierla(self):
+        cfg = dict(CFG, cartella_lavoro="")
+        with self.assertRaises(N.Errore) as e:
+            N.esegui(file=ESEMPIO, cfg=cfg, avanzamento=lambda m: None, verifica_statistiche=False)
+        self.assertIn("-o", str(e.exception))
+        self.assertEqual(N.numeri_convertiti(cfg, 2026), set())
+        self.assertIsNone(N.percorso_tex(cfg, 2026, 1))
+        self.assertEqual(N.CONFIG_PREDEFINITA["cartella_lavoro"], "")
+
+
 class TestNovita(unittest.TestCase):
     def cartella(self, d, files):
         for f in files:

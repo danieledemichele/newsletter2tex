@@ -62,7 +62,8 @@ PAGINA_ARCHIVIO = "NewsletterItaliana/Archivio"
 CONFIG_PREDEFINITA = {
     # Cartella dell'anno: {anno} viene sostituito con l'anno del numero.
     # Qui stanno le immagini; .tex/.pdf/.txt/log vanno nella sottocartella NNN/.
-    "cartella_lavoro": "~/Dropbox/Ubuntu/Newsletter Ubuntu/{anno}",
+    # Vuota finché l'utente non la sceglie (Sfoglia… nella finestra, -o da terminale).
+    "cartella_lavoro": "",
     "a_cura_di": "Daniele De Michele",                       # colophon
     "realizzato_pdf": [["dd3my", "Daniele De Michele"]],    # "Ha realizzato il pdf"
     # Usati solo se il .txt non contiene "Ha inoltre collaborato all'edizione:"
@@ -434,7 +435,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.3.0"
+VERSIONE = "1.3.1"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -744,9 +745,9 @@ def testo_numero_precedente(cfg, anno, num):
         return None, None
     prec = num - 1
     etichetta = f"{anno}.{prec:03d}"
-    locale = os.path.join(os.path.dirname(percorso_tex(cfg, anno, prec)),
-                          f"NewsletterItaliana_{etichetta}.txt")
-    if os.path.exists(locale):
+    tex = percorso_tex(cfg, anno, prec)
+    locale = tex and os.path.join(os.path.dirname(tex), f"NewsletterItaliana_{etichetta}.txt")
+    if locale and os.path.exists(locale):
         with open(locale, encoding="utf-8", errors="replace") as f:
             return f.read(), etichetta
     try:
@@ -756,11 +757,19 @@ def testo_numero_precedente(cfg, anno, num):
         return None, etichetta
 
 
+def cartella_anno(cfg, anno):
+    """Cartella dell'anno dalle impostazioni; stringa vuota se l'utente non l'ha ancora scelta."""
+    base = (cfg.get("cartella_lavoro") or "").strip()
+    return os.path.expanduser(base.replace("{anno}", str(anno))) if base else ""
+
+
 def riferimento_statistiche(cfg, anno=None):
     """Valori del numero più recente convertito in locale: ({chiave: valore}, 'AAAA.NNN')."""
     anno = anno or dt.date.today().year
     for a in (anno, anno - 1):
-        cartella = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(a)))
+        cartella = cartella_anno(cfg, a)
+        if not cartella:
+            return None
         try:
             numeri = sorted((int(n) for n in os.listdir(cartella) if re.fullmatch(r"\d{3}", n)), reverse=True)
         except OSError:
@@ -776,7 +785,9 @@ def riferimento_statistiche(cfg, anno=None):
 
 
 def percorso_tex(cfg, anno, num):
-    cartella = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(anno)))
+    cartella = cartella_anno(cfg, anno)
+    if not cartella:
+        return None
     return os.path.join(cartella, f"{num:03d}", f"Newsletter Ubuntu-it {num:03d}.{anno}.tex")
 
 
@@ -803,9 +814,9 @@ def numeri_convertiti(cfg, anno):
     """Numeri dell'anno che hanno già un .tex o un .pdf nella cartella dell'anno, anche se creati
     a mano prima di usare il programma (es. «Newsletter Ubuntu-it 029.2026.pdf» in qualsiasi
     sottocartella fino a due livelli)."""
-    cartella = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(anno)))
+    cartella = cartella_anno(cfg, anno)
     trovati = set()
-    if not os.path.isdir(cartella):
+    if not cartella or not os.path.isdir(cartella):
         return trovati
     base = cartella.rstrip(os.sep).count(os.sep)
     for radice, cartelle, files in os.walk(cartella):
@@ -1758,7 +1769,10 @@ def cartella_output(dati, scelta, cfg, log):
     if scelta:
         anno_dir = os.path.abspath(os.path.expanduser(scelta.replace("{anno}", str(dati["anno"]))))
     else:
-        anno_dir = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(dati["anno"])))
+        anno_dir = cartella_anno(cfg, dati["anno"])
+        if not anno_dir:
+            raise Errore("Nessuna cartella di destinazione: sceglila con «Sfoglia…» nella finestra "
+                         "oppure, da terminale, indicala con -o CARTELLA (es. -o \"~/Newsletter/{anno}\").")
         if not os.path.isdir(anno_dir):
             ripiego = os.path.expanduser(f"~/Newsletter Ubuntu-it/{dati['anno']}")
             log.avviso(f"Cartella {anno_dir} inesistente: salvo in {ripiego} "
@@ -2886,10 +2900,10 @@ def _finestra(root, prova=None, stato=None):
                 voci.append((nome, p))
         if os.path.isdir(os.path.join(casa, "Dropbox")):
             voci.append(("Dropbox", os.path.join(casa, "Dropbox")))
-        lavoro = os.path.expanduser(cfg["cartella_lavoro"].replace("{anno}", str(dt.date.today().year)))
-        base = os.path.dirname(lavoro) if "{anno}" in cfg["cartella_lavoro"] else lavoro
+        lavoro = cartella_anno(cfg, dt.date.today().year)
+        base = os.path.dirname(lavoro) if "{anno}" in (cfg.get("cartella_lavoro") or "") else lavoro
         for nome, p in (("Newsletter " + str(dt.date.today().year), lavoro), ("Newsletter", base)):
-            if os.path.isdir(p) and all(p != v[1] for v in voci):
+            if p and os.path.isdir(p) and all(p != v[1] for v in voci):
                 voci.append((nome, p))
         return voci
 
@@ -3417,7 +3431,8 @@ def _finestra(root, prova=None, stato=None):
     mostra_pannello()
 
     # --- destinazione --------------------------------------------------------------------
-    v_cartella = tk.StringVar(value=cfg["cartella_lavoro"])
+    v_cartella = tk.StringVar(value=cfg.get("cartella_lavoro") or "")
+    casa_utente = os.path.expanduser("~")
     v_pdf = tk.BooleanVar(value=bool(shutil.which("pdflatex")))
     v_txt = tk.BooleanVar(value=True)
     c_dest, d_corpo, _ = scheda(colonna, "Destinazione", "cartella dell'anno, con le immagini")
@@ -3425,10 +3440,10 @@ def _finestra(root, prova=None, stato=None):
     riga = tk.Frame(d_corpo, bg=SCHEDA)
     riga.pack(fill="x")
     riga.columnconfigure(0, weight=1)
-    Campo(riga, v_cartella).grid(row=0, column=0, sticky="ew")
+    Campo(riga, v_cartella, segnaposto="Nessuna cartella: premi Sfoglia…").grid(row=0, column=0, sticky="ew")
 
     def scegli_cartella():
-        attuale = v_cartella.get().replace("{anno}", str(dt.date.today().year))
+        attuale = v_cartella.get().replace("{anno}", str(dt.date.today().year)) or casa_utente
         x = esplora("cartella", "Scegli la cartella dell'anno (con le immagini)", attuale)
         if x:
             anno = str(dt.date.today().year)
@@ -3697,7 +3712,7 @@ def _finestra(root, prova=None, stato=None):
         """Aggiorna cfg con i campi della finestra; False se c'è un errore."""
         try:
             nuova = dict(cfg)
-            nuova["cartella_lavoro"] = v_cartella.get().strip() or CONFIG_PREDEFINITA["cartella_lavoro"]
+            nuova["cartella_lavoro"] = v_cartella.get().strip()
             nuova["a_cura_di"] = v_cura.get().strip()
             if v_pdf_utente.get().strip() or v_pdf_nome.get().strip():
                 nuova["realizzato_pdf"] = [[v_pdf_utente.get().strip(), v_pdf_nome.get().strip()]]
@@ -4044,7 +4059,20 @@ def _finestra(root, prova=None, stato=None):
             colore_pallino(VERDE)
             v_wiki.set(f"Sei aggiornato: {d['numero']:03d}/{d['anno']} già convertito")
 
+    def cartella_scelta():
+        """La destinazione la sceglie l'utente: se manca si apre subito Sfoglia…"""
+        if v_cartella.get().strip():
+            return True
+        v_stato.set("Scegli prima dove salvare i file.")
+        scegli_cartella()
+        if not v_cartella.get().strip():
+            v_stato.set("Nessuna cartella scelta: conversione annullata.")
+            return False
+        return leggi_impostazioni()
+
     def avvia_lavoro(lista_parametri, continua=False):
+        if not continua and not cartella_scelta():
+            return
         for _, p in lista_parametri:
             p.update({"pdf": v_pdf.get(), "salva_txt": v_txt.get(), "cfg": dict(cfg)})
         if not continua:

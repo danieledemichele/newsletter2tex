@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.3.0-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.3.1-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -73,7 +73,7 @@ newsletter2tex --gui
   - **File .txt**: un file già salvato.
 
   Con "Ultimo numero" non viene scaricato niente senza la tua conferma. Se ti sei perso più numeri, nel popup puoi spuntare anche quelli precedenti.
-- **Destinazione**: la cartella dell'anno, cioè quella con le immagini. `{anno}` viene sostituito con l'anno del numero.
+- **Destinazione**: la cartella dell'anno, cioè quella con le immagini. Al primo avvio è vuota e la scegli tu con «Sfoglia…» (se premi Converti senza averla scelta, la finestra per sceglierla si apre da sola); da quel momento viene ricordata. Se scegli una cartella che si chiama come l'anno in corso (es. `…/2026`), diventa `…/{anno}` e vale anche per gli anni successivi.
 - **Esplora file**:
   - posizioni rapide come Home, Scaricati, Dropbox e la cartella della newsletter;
   - percorso cliccabile e ricerca;
@@ -130,14 +130,14 @@ newsletter2tex                          # scarica e converte l'ultimo numero
 newsletter2tex -n 2026.031              # scarica e converte un numero preciso
 newsletter2tex -f vecchio.txt           # converte un file .txt già salvato
 newsletter2tex --pdf                    # compila anche il PDF
-newsletter2tex -o ~/altra/cartella      # usa un'altra cartella dell'anno
+newsletter2tex -o ~/altra/cartella      # cartella dell'anno (obbligatoria se non è già impostata)
 newsletter2tex --edizione 'garakkio:Massimiliano Arione'
                                         # collaboratori all'edizione (sostituisce quelli del .txt)
 ```
 
 ## Dove finiscono i file
 
-Ogni numero ha una propria sottocartella dentro la cartella dell'anno (predefinita: `~/Dropbox/Ubuntu/Newsletter Ubuntu/<anno>/`):
+Ogni numero ha una propria sottocartella dentro la cartella dell'anno scelta in **Destinazione** (nell'esempio `Newsletter Ubuntu/<anno>/`):
 
 ```
 Newsletter Ubuntu/2026/
@@ -255,6 +255,9 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.3.1**
+- La cartella di destinazione non ha più un valore predefinito: la sceglie l'utente al primo utilizzo e viene ricordata. Da terminale, senza cartella impostata, serve `-o`.
 
 **1.3.0**
 - Log di sistema in `~/.local/state/newsletter2tex/newsletter2tex.log`: avvio, operazioni ed errori con i dettagli tecnici, compresi quelli dell'interfaccia e delle operazioni in sottofondo.
