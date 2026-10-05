@@ -435,7 +435,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.3.1"
+VERSIONE = "1.4.0"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -761,6 +761,17 @@ def cartella_anno(cfg, anno):
     """Cartella dell'anno dalle impostazioni; stringa vuota se l'utente non l'ha ancora scelta."""
     base = (cfg.get("cartella_lavoro") or "").strip()
     return os.path.expanduser(base.replace("{anno}", str(anno))) if base else ""
+
+
+def quando(momento, oggi=None):
+    """«alle 09:50», «ieri alle 09:50» o «il 03/10 alle 09:50»."""
+    oggi = oggi or dt.date.today()
+    ora = momento.strftime("%H:%M")
+    if momento.date() == oggi:
+        return f"alle {ora}"
+    if momento.date() == oggi - dt.timedelta(days=1):
+        return f"ieri alle {ora}"
+    return f"il {momento.strftime('%d/%m')} alle {ora}"
 
 
 def riferimento_statistiche(cfg, anno=None):
@@ -3362,8 +3373,10 @@ def _finestra(root, prova=None, stato=None):
     corpo.rowconfigure(0, weight=1)
     sinistra = tk.Frame(corpo, bg=SFONDO)
     sinistra.grid(row=0, column=0, sticky="nsew")
-    tk.Label(sinistra, text="oppure premi Invio", bg=SFONDO, fg=GRIGIO_CALDO,
-             font=F["piccolo"]).pack(side="bottom", pady=(6, 0))
+    aiuto_tasti = tk.Label(sinistra, text="oppure premi Invio  ·  F1 per le scorciatoie", bg=SFONDO,
+                           fg=GRIGIO_CALDO, font=F["piccolo"], cursor="hand2")
+    aiuto_tasti.pack(side="bottom", pady=(6, 0))
+    aiuto_tasti.bind("<Button-1>", lambda e: mostra_scorciatoie())
     b_converti = Bottone(sinistra, "Converti", tipo="primario", font=F["grande"], alto=48, espandi=True)
     b_converti.pack(side="bottom", fill="x", pady=(14, 0))
     area = AreaScorrevole(sinistra)
@@ -3398,6 +3411,9 @@ def _finestra(root, prova=None, stato=None):
              justify="left", wraplength=270).pack(fill="x")
     tk.Label(testi_wiki, textvariable=v_wiki2, bg=SCHEDA, fg=TENUE, font=F["piccolo"], anchor="w",
              justify="left", wraplength=270).pack(fill="x")
+    v_wiki3 = tk.StringVar(value="")
+    tk.Label(testi_wiki, textvariable=v_wiki3, bg=SCHEDA, fg=GRIGIO_CALDO, font=F["piccolo"], anchor="w",
+             justify="left").pack(fill="x", pady=(2, 0))
     b_controlla = Bottone(p, "Controlla ora", lambda: avvia_controllo(manuale=True))
     b_controlla.pack(side="right", before=stato_wiki)   # il pulsante ha la precedenza sullo spazio
     pannelli["ultimo"] = p
@@ -3408,7 +3424,8 @@ def _finestra(root, prova=None, stato=None):
     colore_pallino(GRIGIO_CALDO)
 
     p = tk.Frame(dettaglio, bg=SCHEDA)
-    Campo(p, v_numero, larghezza=12).pack(side="left")
+    campo_numero = Campo(p, v_numero, larghezza=12)
+    campo_numero.pack(side="left")
     nota(p, "formato AAAA.NNN, es. 2026.031").pack(side="left", padx=12)
     pannelli["numero"] = p
 
@@ -3737,6 +3754,20 @@ def _finestra(root, prova=None, stato=None):
         root.after(45 * 60 * 1000, scansione_periodica)
     coda_controllo = queue.Queue()
 
+    def aggiorna_ora_controllo(prefisso="Controllato"):
+        momento = novita.get("ultimo")
+        v_wiki3.set(f"{prefisso} {quando(momento)}" if momento else "")
+        if momento:
+            v_wiki3.prefisso = prefisso
+
+    def ricontrolla_etichetta_ora():
+        # a mezzanotte «alle 09:50» deve diventare «ieri alle 09:50»
+        if not root.winfo_exists() or root_generazione[0] != generazione:
+            return
+        if novita.get("ultimo") and not novita["in_corso"]:
+            aggiorna_ora_controllo(getattr(v_wiki3, "prefisso", "Controllato"))
+        root.after(60 * 1000, ricontrolla_etichetta_ora)
+
     def avvia_controllo(manuale=False, poi=None, periodico=False):
         if novita["in_corso"]:
             return
@@ -3747,6 +3778,7 @@ def _finestra(root, prova=None, stato=None):
         colore_pallino(GRIGIO_CALDO)
         v_wiki.set("Controllo del wiki in corso…")
         v_wiki2.set("Cerco l'ultimo numero pubblicato")
+        v_wiki3.set("")
 
         def lavora():
             try:
@@ -3767,6 +3799,7 @@ def _finestra(root, prova=None, stato=None):
                 root.after(150, attendi)
                 return
             novita["in_corso"] = False
+            novita["ultimo"] = dt.datetime.now()
             b_controlla.stato(True)
             if tipo == "ok":
                 novita["dati"] = dato
@@ -3783,6 +3816,7 @@ def _finestra(root, prova=None, stato=None):
                     colore_pallino(VERDE)
                     v_wiki.set(f"Sei aggiornato: {num} già convertito")
                     v_wiki2.set(dato["anteprima"]["settimana"].capitalize())
+                aggiorna_ora_controllo()
                 if poi:
                     poi()
                 elif periodico:
@@ -3801,6 +3835,7 @@ def _finestra(root, prova=None, stato=None):
                 v_wiki.set("Impossibile controllare il wiki")
                 v_wiki2.set("Il wiki blocca le richieste automatiche: usa «File .txt»."
                             if tipo == "bloccato" else f"Errore di rete: {dato[:70]}")
+                aggiorna_ora_controllo("Ultimo tentativo")
                 if manuale or poi:
                     messagebox.showwarning("Controllo non riuscito",
                                            MSG_BLOCCATO.format(e=dato) if tipo == "bloccato" else dato,
@@ -4429,6 +4464,7 @@ def _finestra(root, prova=None, stato=None):
             "pdf": v_pdf.get(), "txt": v_txt.get(), "cura": v_cura.get(), "pdf_utente": v_pdf_utente.get(),
             "pdf_nome": v_pdf_nome.get(), "edizione": v_edizione.get(), "imp_aperte": v_aperte.get(),
             "novita": novita["dati"], "novita_errore": (v_wiki.get(), v_wiki2.get()),
+            "ultimo_controllo": (novita.get("ultimo"), getattr(v_wiki3, "prefisso", "Controllato")),
             "eventi": eventi, "totali": totali, "risultato": dict(risultato), "filtri": filtri,
             "barra": esito_barra["colore"], "v_stato": v_stato.get(),
         }
@@ -4512,6 +4548,9 @@ def _finestra(root, prova=None, stato=None):
         if stato.get("novita_errore"):
             v_wiki.set(stato["novita_errore"][0])
             v_wiki2.set(stato["novita_errore"][1])
+        if stato.get("ultimo_controllo") and stato["ultimo_controllo"][0]:
+            novita["ultimo"] = stato["ultimo_controllo"][0]
+            aggiorna_ora_controllo(stato["ultimo_controllo"][1])
         if stato.get("v_stato"):
             v_stato.set(stato["v_stato"])
         ridisegna_console()
@@ -4527,9 +4566,95 @@ def _finestra(root, prova=None, stato=None):
             root.after(50, lambda: barra.ferma(esito_barra["colore"]))
 
     b_converti.comando = converti_click
-    root.bind("<Return>", lambda e: converti_click() if e.widget.winfo_toplevel() is root else None)
-    root.bind("<Control-q>", lambda e: root.destroy())
-    root.bind("<Control-o>", lambda e: (v_sorgente.set("file"), scegli_file()))
+
+    # --- scorciatoie da tastiera ------------------------------------------------------
+    # Niente Ctrl+lettera già usate dalle caselle di testo di Tk (Ctrl+A/B/D/E/F/H/K/T):
+    # premute mentre si scrive farebbero due cose insieme.
+    def sorgente_numero():
+        v_sorgente.set("numero")
+        campo_numero.e.focus_set()
+        campo_numero.e.icursor("end")
+
+    def apri_log_sistema():
+        if os.path.exists(file_log_sistema()):
+            apri_nel_browser(file_log_sistema())
+
+    def solo_se_libero(funzione):
+        # mentre si converte, le scorciatoie che cambiano lo stato non fanno nulla
+        return lambda: None if lavoro_attivo["coda"] is not None else funzione()
+
+    SCORCIATOIE = [
+        ("Conversione", None, None),
+        ("Invio", ("<Return>", "<KP_Enter>"), ("Converti", converti_click)),
+        ("Esc", ("<Escape>",), ("Interrompi la conversione in corso",
+                                lambda: interrompi() if lavoro_attivo["coda"] is not None else None)),
+        ("Ctrl+1", ("<Control-Key-1>",), ("Sorgente: ultimo numero", solo_se_libero(lambda: v_sorgente.set("ultimo")))),
+        ("Ctrl+2", ("<Control-Key-2>",), ("Sorgente: numero specifico", solo_se_libero(sorgente_numero))),
+        ("Ctrl+3", ("<Control-Key-3>",), ("Sorgente: file .txt", solo_se_libero(lambda: v_sorgente.set("file")))),
+        ("Ctrl+O", ("<Control-o>",), ("Scegli il file .txt",
+                                      solo_se_libero(lambda: (v_sorgente.set("file"), scegli_file())))),
+        ("F5  ·  Ctrl+R", ("<F5>", "<Control-r>"), ("Controlla ora il wiki", lambda: avvia_controllo(manuale=True))),
+        ("Risultato", None, None),
+        ("Ctrl+P", ("<Control-p>",), ("Apri il PDF", lambda: apri("pdf"))),
+        ("Ctrl+Maiusc+O", ("<Control-O>", "<Control-Shift-O>"), ("Apri la cartella del numero", lambda: apri("cartella"))),
+        ("Ctrl+L", ("<Control-l>",), ("Apri il log di sistema", apri_log_sistema)),
+        ("Finestra", None, None),
+        ("Ctrl+,", ("<Control-comma>",), ("Mostra o nascondi le impostazioni personali", alterna_impostazioni)),
+        ("Ctrl+Maiusc+T", ("<Control-T>", "<Control-Shift-T>"), ("Modalità giorno/notte", cambia_tema)),
+        ("Ctrl+Maiusc+S", ("<Control-S>", "<Control-Shift-S>"), ("Statistiche dei bug", mostra_statistiche)),
+        ("F1", ("<F1>",), ("Questo elenco di scorciatoie", lambda: mostra_scorciatoie())),
+        ("Ctrl+Q", ("<Control-q>",), ("Chiudi il programma", lambda: root.destroy())),
+    ]
+
+    def collega(sequenza, funzione):
+        def gestore(e):
+            # solo nella finestra principale: nei popup Invio ed Esc hanno il loro significato
+            if e.widget.winfo_toplevel() is not root or root.grab_current() is not None:
+                return None
+            funzione()
+            return "break"
+        root.bind(sequenza, gestore)
+
+    for _, sequenze, azione in SCORCIATOIE:
+        for sequenza in sequenze or ():
+            collega(sequenza, azione[1])
+
+    def mostra_scorciatoie():
+        top = finestra_modale("Scorciatoie da tastiera", 500, 600)
+        top.configure(bg=SCHEDA)
+        testa = tk.Canvas(top, height=96, highlightthickness=0, bg=MELANZANA_SCURA)
+        testa.pack(fill="x")
+
+        def disegna(_=None):
+            testa.delete("all")
+            l = testa.winfo_width()
+            for i in range(0, l, 4):
+                t = i / max(l, 1)
+                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
+                                         int(0x1E + (0x6F - 0x1E) * t))
+                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
+            testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"], text="TASTIERA")
+            testa.create_text(28, 62, anchor="w", fill="white", font=F["enorme"], text="Scorciatoie")
+        testa.bind("<Configure>", disegna)
+
+        elenco = tk.Frame(top, bg=SCHEDA, padx=28, pady=10)
+        elenco.pack(fill="both", expand=True)
+        elenco.columnconfigure(1, weight=1)
+        for riga, (tasti, sequenze, azione) in enumerate(SCORCIATOIE):
+            if sequenze is None:
+                tk.Label(elenco, text=tasti.upper(), bg=SCHEDA, fg=TENUE, font=F["piccolo_b"]).grid(
+                    row=riga, column=0, columnspan=2, sticky="w", pady=(12 if riga else 4, 4))
+                continue
+            tk.Label(elenco, text=tasti, bg=SFONDO, fg=TESTO, font=F["mono"], padx=8, pady=2,
+                     highlightthickness=1, highlightbackground=BORDO).grid(
+                row=riga, column=0, sticky="w", pady=2)
+            tk.Label(elenco, text=azione[0], bg=SCHEDA, fg=TESTO, font=F["testo"], anchor="w").grid(
+                row=riga, column=1, sticky="w", padx=(14, 0), pady=2)
+        Bottone(top, "Chiudi", top.destroy, tipo="primario").pack(side="bottom", anchor="e", padx=28, pady=(0, 18))
+        mostra_modale(top)
+
+    root.after(60 * 1000, ricontrolla_etichetta_ora)
 
     if stato:
         ripristina()
@@ -4549,7 +4674,8 @@ def _finestra(root, prova=None, stato=None):
                      "controllo": avvia_controllo, "tema": cambia_tema, "statistiche": mostra_statistiche,
                      "filtro": alterna_filtro, "stato": stato, "banner": mostra_banner,
                      "attendi_browser": attendi_dal_browser, "aggiornamenti": controlla_aggiornamenti,
-                     "imposta_browser": imposta_browser, "avvia_lavoro": avvia_lavoro})
+                     "imposta_browser": imposta_browser, "avvia_lavoro": avvia_lavoro,
+                     "ora_controllo": v_wiki3, "scorciatoie": mostra_scorciatoie})
     elif not stato:
         root.after(600, avvia_controllo)
         root.after(1500, controlla_aggiornamenti)   # avvisa sempre; installa da solo se attivo

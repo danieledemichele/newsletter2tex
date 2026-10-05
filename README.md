@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.3.1-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-1.4.0-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -68,7 +68,7 @@ newsletter2tex --gui
 | ![Popup del nuovo numero](docs/popup-nuovo-numero.png) | ![Esplora file](docs/esplora-file.png) |
 
 - **Sorgente**:
-  - **Ultimo numero**: lo stato del wiki, con il pulsante "Controlla ora".
+  - **Ultimo numero**: lo stato del wiki con l'ora dell'ultimo controllo (es. «Controllato alle 09:50», poi «ieri alle…»), e il pulsante "Controlla ora".
   - **Numero specifico**: un numero preciso, per esempio `2026.031`.
   - **File .txt**: un file già salvato.
 
@@ -88,6 +88,28 @@ newsletter2tex --gui
   - pulsanti per aprire la cartella, il log e il PDF.
 - **Modalità giorno/notte**: il pulsante con la luna (o il sole) nell'intestazione cambia tema con una dissolvenza, nella stessa finestra e senza perdere il lavoro in corso. Al primo avvio il programma segue l'impostazione chiaro/scuro di Ubuntu, poi ricorda la tua scelta.
 - **Schermi piccoli**: la colonna di sinistra scorre con la rotella del mouse e il pulsante **Converti** resta sempre visibile.
+
+### Scorciatoie da tastiera
+
+Premi **F1** (o clicca «F1 per le scorciatoie» sotto Converti) per vederle nel programma.
+
+| Tasti | Azione |
+|---|---|
+| `Invio` | Converti |
+| `Esc` | Interrompi la conversione in corso |
+| `Ctrl+1` · `Ctrl+2` · `Ctrl+3` | Sorgente: ultimo numero · numero specifico · file .txt |
+| `Ctrl+O` | Scegli il file .txt |
+| `F5` · `Ctrl+R` | Controlla ora il wiki |
+| `Ctrl+P` | Apri il PDF |
+| `Ctrl+Maiusc+O` | Apri la cartella del numero |
+| `Ctrl+L` | Apri il log di sistema |
+| `Ctrl+,` | Mostra o nascondi le impostazioni personali |
+| `Ctrl+Maiusc+T` | Modalità giorno/notte |
+| `Ctrl+Maiusc+S` | Statistiche dei bug |
+| `F1` | Elenco delle scorciatoie |
+| `Ctrl+Q` | Chiudi il programma |
+
+Le scorciatoie valgono nella finestra principale; nei popup `Invio` ed `Esc` confermano e chiudono come al solito. Mentre una conversione è in corso, quelle che cambiano la sorgente non fanno nulla.
 
 ## Avviso dei nuovi numeri
 
@@ -255,6 +277,10 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**1.4.0**
+- Scorciatoie da tastiera per tutte le azioni principali, con l'elenco sempre a portata di **F1**.
+- Sotto lo stato del wiki compare l'ora dell'ultimo controllo (o dell'ultimo tentativo non riuscito); si aggiorna da sola anche a cavallo della mezzanotte.
 
 **1.3.1**
 - La cartella di destinazione non ha più un valore predefinito: la sceglie l'utente al primo utilizzo e viene ricordata. Da terminale, senza cartella impostata, serve `-o`.

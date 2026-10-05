@@ -64,6 +64,8 @@ def prova(root, c):
         controlla(c["stato"].get("tema") == "scuro", "il cambio di tema passa alla modalità notte")
         controlla(root.winfo_id() == giro["finestra"] and root.winfo_exists(),
                   "il cambio di tema avviene nella stessa finestra, senza chiuderla")
+        controlla(c["ora_controllo"].get().startswith("Controllato alle "),
+                  "l'ora dell'ultimo controllo resta dopo il cambio di tema")
         root.after(300, lambda: antibot(root, c))
         return
 
@@ -100,6 +102,29 @@ def prova(root, c):
         c["imposta"](esplora=lambda top: top.after(400, top.destroy))
         c["esplora"]("file", "Prova", casa)
         controlla(True, "esplora file aperto e chiuso")
+        c["controllo"]()
+        root.after(1200, tastiera)
+
+    def tastiera():
+        controlla(c["ora_controllo"].get().startswith("Controllato alle "),
+                  "dopo il controllo del wiki compare l'ora: " + repr(c["ora_controllo"].get()))
+        root.focus_force()
+        root.event_generate("<Control-Key-2>")
+        root.update()
+        controlla(c["sorgente"].get() == "numero", "Ctrl+2 passa a «Numero specifico»")
+        root.event_generate("<Control-Key-1>")
+        root.update()
+        controlla(c["sorgente"].get() == "ultimo", "Ctrl+1 torna a «Ultimo numero»")
+        aperte = []
+
+        def chiudi_popup():
+            for w in root.winfo_children():
+                if isinstance(w, tk.Toplevel) and w.title() == "Scorciatoie da tastiera":
+                    aperte.append(w)
+                    w.destroy()
+        root.after(500, chiudi_popup)
+        c["scorciatoie"]()
+        controlla(len(aperte) == 1, "F1: l'elenco delle scorciatoie si apre e si chiude")
         root.after(300, c["tema"])
 
     root.after(500, mouse_sui_pulsanti)

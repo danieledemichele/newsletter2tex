@@ -216,6 +216,12 @@ class TestCartelle(unittest.TestCase):
 
 
 class TestNovita(unittest.TestCase):
+    def test_ora_del_controllo(self):
+        oggi = N.dt.date(2026, 10, 5)
+        self.assertEqual(N.quando(N.dt.datetime(2026, 10, 5, 9, 50), oggi), "alle 09:50")
+        self.assertEqual(N.quando(N.dt.datetime(2026, 10, 4, 21, 5), oggi), "ieri alle 21:05")
+        self.assertEqual(N.quando(N.dt.datetime(2026, 10, 1, 8, 0), oggi), "il 01/10 alle 08:00")
+
     def cartella(self, d, files):
         for f in files:
             percorso = os.path.join(d, "2026", f)
