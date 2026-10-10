@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml"><img alt="Test" src="https://github.com/danieledemichele/newsletter2tex/actions/workflows/test.yml/badge.svg"></a>
-  <img alt="Versione" src="https://img.shields.io/badge/versione-1.4.0-E95420">
+  <img alt="Versione" src="https://img.shields.io/badge/versione-2.0.0-E95420">
   <img alt="Python" src="https://img.shields.io/badge/python-3.8%2B-77216F">
   <img alt="Licenza" src="https://img.shields.io/badge/licenza-GPL--3.0-2C001E">
 </p>
@@ -85,7 +85,8 @@ newsletter2tex --gui
   - errori, avvisi e refusi raggruppati per riga;
   - le etichette colorate in alto funzionano da filtro: cliccandole si nascondono o si mostrano errori, avvisi o refusi;
   - anteprima della copertina del PDF, con numero di pagine e dimensione;
-  - pulsanti per aprire la cartella, il log e il PDF.
+  - pulsanti per aprire la cartella, il log e il PDF;
+  - pulsante **Carica sul wiki** per allegare il PDF alla pagina del numero (vedi sotto).
 - **Modalità giorno/notte**: il pulsante con la luna (o il sole) nell'intestazione cambia tema con una dissolvenza, nella stessa finestra e senza perdere il lavoro in corso. Al primo avvio il programma segue l'impostazione chiaro/scuro di Ubuntu, poi ricorda la tua scelta.
 - **Schermi piccoli**: la colonna di sinistra scorre con la rotella del mouse e il pulsante **Converti** resta sempre visibile.
 
@@ -101,6 +102,7 @@ Premi **F1** (o clicca «F1 per le scorciatoie» sotto Converti) per vederle nel
 | `Ctrl+O` | Scegli il file .txt |
 | `F5` · `Ctrl+R` | Controlla ora il wiki |
 | `Ctrl+P` | Apri il PDF |
+| `Ctrl+U` | Carica il PDF sul wiki |
 | `Ctrl+Maiusc+O` | Apri la cartella del numero |
 | `Ctrl+L` | Apri il log di sistema |
 | `Ctrl+,` | Mostra o nascondi le impostazioni personali |
@@ -110,6 +112,20 @@ Premi **F1** (o clicca «F1 per le scorciatoie» sotto Converti) per vederle nel
 | `Ctrl+Q` | Chiudi il programma |
 
 Le scorciatoie valgono nella finestra principale; nei popup `Invio` ed `Esc` confermano e chiudono come al solito. Mentre una conversione è in corso, quelle che cambiano la sorgente non fanno nulla.
+
+## Caricare il PDF sul wiki
+
+Finita la conversione, il pulsante **Carica sul wiki** (o `Ctrl+U`):
+
+1. apre nel browser la pagina degli allegati del numero, per esempio `NewsletterItaliana/2026.031?action=AttachFile`;
+2. copia negli appunti il percorso completo del PDF;
+3. mostra una finestra con i tre passaggi da fare e i pulsanti «Copia il percorso», «Mostra il file» e «Riapri la pagina».
+
+Nel modulo del wiki premi «Sfoglia…», poi `Ctrl+L` e `Ctrl+V` e `Invio`: il file è già scelto, resta solo «Carica». In alternativa trascina il PDF dalla cartella aperta con «Mostra il file» nella finestra del browser.
+
+L'accesso al wiki avviene nel browser con il tuo account Launchpad: il programma non chiede e non salva password. Il caricamento completamente automatico non è possibile perché il login passa da Launchpad (Ubuntu One) e il wiki ha una protezione anti-bot che blocca le richieste dei programmi.
+
+Se il PDF va allegato a un'altra pagina, cambia `pagina_allegati` in `~/.config/newsletter2tex/config.json` (predefinita: `"NewsletterItaliana/{anno}.{numero}"`).
 
 ## Avviso dei nuovi numeri
 
@@ -277,6 +293,10 @@ docs/                    icona, schermate e animazione per questo README
 ```
 
 ## Novità
+
+**2.0.0**
+- Pulsante **Carica sul wiki**: apre la pagina degli allegati del numero e copia il percorso del PDF negli appunti, con le istruzioni in una finestra.
+- Grafica più nitida: angoli arrotondati, interruttori, pulsanti rotondi, icone dell'intestazione e segni di spunta sono disegnati con l'antialiasing, senza le scalette di prima; le sfumature delle intestazioni sono continue, senza bande.
 
 **1.4.0**
 - Scorciatoie da tastiera per tutte le azioni principali, con l'elenco sempre a portata di **F1**.

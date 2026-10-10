@@ -216,6 +216,17 @@ class TestCartelle(unittest.TestCase):
 
 
 class TestNovita(unittest.TestCase):
+    def test_pagina_degli_allegati(self):
+        self.assertEqual(N.url_allegati(CFG, 2026, 31),
+                         "https://wiki.ubuntu-it.org/NewsletterItaliana/2026.031?action=AttachFile")
+        cfg = dict(CFG, pagina_allegati="NewsletterItaliana/Archivio PDF/{anno}")
+        self.assertEqual(N.url_allegati(cfg, 2026, 31),
+                         "https://wiki.ubuntu-it.org/NewsletterItaliana/Archivio%20PDF/2026?action=AttachFile")
+
+    def test_png_con_trasparenza(self):
+        dati = N.png_rgba(2, 1, bytes([255, 0, 0, 255, 0, 0, 0, 0]))
+        self.assertTrue(dati.startswith(b"\x89PNG") and dati.endswith(b"IEND\xaeB`\x82"))
+
     def test_ora_del_controllo(self):
         oggi = N.dt.date(2026, 10, 5)
         self.assertEqual(N.quando(N.dt.datetime(2026, 10, 5, 9, 50), oggi), "alle 09:50")

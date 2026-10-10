@@ -125,7 +125,24 @@ def prova(root, c):
         root.after(500, chiudi_popup)
         c["scorciatoie"]()
         controlla(len(aperte) == 1, "F1: l'elenco delle scorciatoie si apre e si chiude")
+        carica_sul_wiki()
         root.after(300, c["tema"])
+
+    def carica_sul_wiki():
+        pdf = os.path.join(casa, "Newsletter Ubuntu-it 011.2025.pdf")
+        with open(pdf, "wb") as f:
+            f.write(b"%PDF-1.5 prova")
+        aperti, finestre = [], []
+        vero_browser = N.apri_nel_browser
+        N.apri_nel_browser = aperti.append
+        c["risultato"].update(pdf=pdf, dati={"anno": 2025, "numero": 11})
+        c["imposta"](carica=lambda top, url, p: (finestre.append(top.title()), top.after(400, top.destroy)))
+        c["carica"]()
+        N.apri_nel_browser = vero_browser
+        controlla(aperti == ["https://wiki.ubuntu-it.org/NewsletterItaliana/2025.011?action=AttachFile"],
+                  "Carica sul wiki apre la pagina degli allegati del numero: " + repr(aperti))
+        controlla(root.clipboard_get() == pdf, "il percorso del PDF è negli appunti")
+        controlla(finestre == ["Carica il PDF sul wiki"], "la finestra con le istruzioni si apre e si chiude")
 
     root.after(500, mouse_sui_pulsanti)
     root.after(1600, finestra_reattiva)

@@ -41,9 +41,11 @@ import datetime as dt
 import os
 import re
 import shutil
+import struct
 import socket
 import subprocess
 import sys
+import zlib
 import time
 import urllib.error
 import urllib.parse
@@ -71,6 +73,8 @@ CONFIG_PREDEFINITA = {
     "tema": "",                                             # "chiaro", "scuro" o "" = come Ubuntu
     "notifiche": True,                                      # avviso dei nuovi numeri (lunedì sera/martedì)
     "aggiornamenti_automatici": True,                       # aggiornamento da GitHub all'avvio
+    # Pagina del wiki a cui si allega il PDF ({anno}, {numero} a tre cifre)
+    "pagina_allegati": "NewsletterItaliana/{anno}.{numero}",
 }
 CONFIG_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                            "newsletter2tex", "config.json")
@@ -404,6 +408,18 @@ def icona_png(grande=True):
     return base64.b64decode(ICONA[0] if grande else ICONA[1])
 
 
+def png_rgba(larghezza, altezza, pixel):
+    """PNG a 8 bit RGBA da una sequenza di byte riga per riga (solo libreria standard)."""
+    riga = larghezza * 4
+    grezzo = b"".join(b"\x00" + bytes(pixel[y * riga:(y + 1) * riga]) for y in range(altezza))
+
+    def blocco(tipo, dati):
+        return (struct.pack(">I", len(dati)) + tipo + dati
+                + struct.pack(">I", zlib.crc32(tipo + dati) & 0xFFFFFFFF))
+    return (b"\x89PNG\r\n\x1a\n" + blocco(b"IHDR", struct.pack(">IIBBBBB", larghezza, altezza, 8, 6, 0, 0, 0))
+            + blocco(b"IDAT", zlib.compress(grezzo, 9)) + blocco(b"IEND", b""))
+
+
 def esporta_icona(percorso=PERCORSO_ICONA):
     os.makedirs(os.path.dirname(percorso), exist_ok=True)
     with open(percorso, "wb") as f:
@@ -435,7 +451,7 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # LOG
 # ---------------------------------------------------------------------------
 
-VERSIONE = "1.4.0"
+VERSIONE = "2.0.0"
 DESIGN = "Daniele De Michele"
 
 LIVELLI = ("ERRORE", "AVVISO", "REFUSO", "INFO")
@@ -2063,6 +2079,28 @@ def url_raw(anno, num):
     return f"{WIKI_IT}/{PAGINA_NEWSLETTER}/{anno}.{num:03d}?action=raw"
 
 
+def url_allegati(cfg, anno, num):
+    """Pagina «Allegati» del wiki dove caricare il PDF del numero."""
+    pagina = (cfg.get("pagina_allegati") or CONFIG_PREDEFINITA["pagina_allegati"]).format(
+        anno=anno, numero=f"{num:03d}")
+    return f"{WIKI_IT}/{urllib.parse.quote(pagina)}?action=AttachFile"
+
+
+def mostra_nella_cartella(percorso):
+    """Apre il gestore file con il file già selezionato (Nautilus), altrimenti la cartella."""
+    for comando in (["nautilus", "--select", percorso],
+                    ["dbus-send", "--session", "--dest=org.freedesktop.FileManager1", "--type=method_call",
+                     "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems",
+                     "array:string:file://" + urllib.parse.quote(percorso), "string:"]):
+        if shutil.which(comando[0]):
+            try:
+                subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except OSError:
+                pass
+    apri_nel_browser(os.path.dirname(percorso))
+
+
 def apri_nel_browser(url):
     try:
         subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -2375,6 +2413,7 @@ def _finestra(root, prova=None, stato=None):
     VERDE, VERDE_TESTO, VERDE_TENUE = P["VERDE"], P["VERDE_TESTO"], P["VERDE_TENUE"]
     REFUSO_TESTO, REFUSO_TENUE = P["REFUSO_TESTO"], P["REFUSO_TENUE"]
 
+    import math
     casa = os.path.expanduser("~")
     root.configure(bg=SFONDO)
 
@@ -2444,17 +2483,127 @@ def _finestra(root, prova=None, stato=None):
             testo() if callable(testo) else testo, e.x_root + 12, e.y_root + 18), add="+")
         widget.bind("<Leave>", lambda e: suggerimento.nascondi(), add="+")
 
+    # --- forme con antialiasing ----------------------------------------------
+    # Il Canvas di Tk su Linux disegna cerchi, curve e linee spesse senza antialiasing: i bordi
+    # restano a scalette. Le parti curve si generano quindi come piccole immagini PNG con
+    # trasparenza (4×4 campioni per pixel), tenute in memoria e riusate; i tratti dritti restano
+    # rettangoli del Canvas, che sono già nitidi.
+    forme = {}
+    colori_rgb = {}
+
+    def rgb(colore):
+        if colore not in colori_rgb:
+            r, g, b = root.winfo_rgb(colore)
+            colori_rgb[colore] = (r >> 8, g >> 8, b >> 8)
+        return colori_rgb[colore]
+
+    def immagine_liscia(chiave, larghezza, altezza, strati):
+        """strati: [(colore o None, dentro(x, y))]; vince l'ultimo strato che contiene il punto,
+        None lo rende trasparente (per i ritagli, come la luna)."""
+        if chiave in forme:
+            return forme[chiave]
+        campioni = [(i + 0.5) / 4 for i in range(4)]
+        strati = [(rgb(col) if col else None, dentro) for col, dentro in reversed(strati)]
+        pixel = bytearray(larghezza * altezza * 4)
+        for y in range(altezza):
+            for x in range(larghezza):
+                rs = gs = bs = n = 0
+                for sy in campioni:
+                    for sx in campioni:
+                        for col, dentro in strati:
+                            if dentro(x + sx, y + sy):
+                                if col:
+                                    rs += col[0]
+                                    gs += col[1]
+                                    bs += col[2]
+                                    n += 1
+                                break
+                if n:
+                    i = (y * larghezza + x) * 4
+                    pixel[i:i + 4] = bytes((rs // n, gs // n, bs // n, (255 * n + 8) // 16))
+        forme[chiave] = tk.PhotoImage(data=base64.b64encode(png_rgba(larghezza, altezza, pixel)).decode())
+        return forme[chiave]
+
+    def angolo(r, fill, outline, quale, w=1):
+        cx = r if quale[1] == "w" else 0
+        cy = r if quale[0] == "n" else 0
+        esterno = lambda x, y: (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+        interno = lambda x, y: (x - cx) ** 2 + (y - cy) ** 2 <= max(0, r - w) ** 2
+        if outline:
+            strati = [(outline, esterno), (fill or None, interno)]
+        else:
+            strati = [(fill, esterno)]
+        return immagine_liscia(("angolo", r, fill, outline, quale, w), r, r, strati)
+
+    def rettangolo_arrotondato(c, x1, y1, x2, y2, r, fill="", outline="", tags=(), width=1):
+        X1, Y1, X2, Y2 = (int(round(v)) for v in (x1, y1, x2, y2))
+        if X2 <= X1 or Y2 <= Y1:
+            return
+        R = int(round(max(0, min(r, (X2 - X1) / 2, (Y2 - Y1) / 2))))
+        t = {"tags": tags} if tags else {}
+        if fill:
+            c.create_rectangle(X1 + R, Y1, X2 - R, Y2, fill=fill, outline="", **t)
+            if Y2 - Y1 > 2 * R:
+                c.create_rectangle(X1, Y1 + R, X1 + R, Y2 - R, fill=fill, outline="", **t)
+                c.create_rectangle(X2 - R, Y1 + R, X2, Y2 - R, fill=fill, outline="", **t)
+        if outline:
+            w = max(1, int(round(width)))
+            for a, b, cc, d in ((X1 + R, Y1, X2 - R, Y1 + w), (X1 + R, Y2 - w, X2 - R, Y2),
+                                (X1, Y1 + R, X1 + w, Y2 - R), (X2 - w, Y1 + R, X2, Y2 - R)):
+                if cc > a and d > b:
+                    c.create_rectangle(a, b, cc, d, fill=outline, outline="", **t)
+        if R > 0 and (fill or outline):
+            for quale, x, y in (("nw", X1, Y1), ("ne", X2 - R, Y1), ("sw", X1, Y2 - R), ("se", X2 - R, Y2 - R)):
+                c.create_image(x, y, image=angolo(R, fill, outline, quale, max(1, int(round(width)))),
+                               anchor="nw", **t)
+
+    def disco(c, cx, cy, r, fill, ritaglio=None, tags=()):
+        """Cerchio pieno; ritaglio=(dx, dy, r2) toglie un secondo cerchio (falce di luna)."""
+        n = int(math.ceil(r)) + 1
+        strati = [(fill, lambda x, y: (x - n) ** 2 + (y - n) ** 2 <= r * r)]
+        if ritaglio:
+            dx, dy, r2 = ritaglio
+            strati.append((None, lambda x, y: (x - n - dx) ** 2 + (y - n - dy) ** 2 <= r2 * r2))
+        img = immagine_liscia(("disco", r, fill, ritaglio), 2 * n, 2 * n, strati)
+        return c.create_image(round(cx), round(cy), image=img, anchor="center", **({"tags": tags} if tags else {}))
+
+    def linea(c, punti, spessore, colore, tags=()):
+        """Spezzata con estremi arrotondati."""
+        m = spessore / 2 + 1
+        x0, y0 = math.floor(min(punti[0::2]) - m), math.floor(min(punti[1::2]) - m)
+        larghezza = math.ceil(max(punti[0::2]) + m) - x0
+        altezza = math.ceil(max(punti[1::2]) + m) - y0
+        rel = [round(v - (x0 if i % 2 == 0 else y0), 3) for i, v in enumerate(punti)]
+        segmenti = [rel[i:i + 4] for i in range(0, len(rel) - 2, 2)]
+        r2 = (spessore / 2) ** 2
+
+        def dentro(x, y):
+            for ax, ay, bx, by in segmenti:
+                dx, dy = bx - ax, by - ay
+                lung = dx * dx + dy * dy
+                k = 0 if not lung else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / lung))
+                ex, ey = ax + k * dx - x, ay + k * dy - y
+                if ex * ex + ey * ey <= r2:
+                    return True
+            return False
+        img = immagine_liscia(("linea", tuple(rel), spessore, colore), larghezza, altezza, [(colore, dentro)])
+        return c.create_image(x0, y0, image=img, anchor="nw", **({"tags": tags} if tags else {}))
+
+    def fascia(c, larghezza, altezza, colore1, colore2):
+        """Sfumatura orizzontale continua (un pixel per colonna, senza bande)."""
+        larghezza = max(1, int(larghezza))
+        (r1, g1, b1), (r2, g2, b2) = rgb(colore1), rgb(colore2)
+        colonne = []
+        for i in range(larghezza):
+            k = i / max(larghezza - 1, 1)
+            colonne.append("#%02x%02x%02x" % (round(r1 + (r2 - r1) * k), round(g1 + (g2 - g1) * k),
+                                               round(b1 + (b2 - b1) * k)))
+        img = tk.PhotoImage(width=larghezza, height=altezza)
+        img.put("{" + " ".join(colonne) + "}", to=(0, 0, larghezza, altezza))
+        c._fascia = img                     # una per canvas: sostituisce la precedente
+        return c.create_image(0, 0, image=img, anchor="nw")
+
     # --- componenti -----------------------------------------------------------
-    def rettangolo_arrotondato(c, x1, y1, x2, y2, r, **kw):
-        import math
-        r = max(0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
-        punti = []
-        for cx, cy, inizio in ((x2 - r, y1 + r, -90), (x2 - r, y2 - r, 0),
-                               (x1 + r, y2 - r, 90), (x1 + r, y1 + r, 180)):
-            for k in range(9):
-                ang = math.radians(inizio + k * 90 / 8)
-                punti += [cx + r * math.cos(ang), cy + r * math.sin(ang)]
-        return c.create_polygon(punti, **kw)
 
     def traccia(widget, variabile, funzione):
         # collega funzione() alle modifiche di variabile finché widget esiste;
@@ -2604,7 +2753,7 @@ def _finestra(root, prova=None, stato=None):
             punti = {"sx": (cx + 2, cy - d, cx - 3, cy, cx + 2, cy + d),
                      "dx": (cx - 2, cy - d, cx + 3, cy, cx - 2, cy + d),
                      "su": (cx - d, cy + 2, cx, cy - 3, cx + d, cy + 2)}[self.direzione]
-            self.create_line(*punti, fill=col, width=2, capstyle="round", joinstyle="round")
+            linea(self, punti, 2, col)
 
     class Interruttore(tk.Frame):
         """Interruttore on/off con etichetta, legato a una BooleanVar."""
@@ -2627,8 +2776,7 @@ def _finestra(root, prova=None, stato=None):
             c.delete("all")
             on = self.var.get()
             rettangolo_arrotondato(c, 1, 1, 39, 21, 10, fill=ARANCIO if on else INTERRUTTORE_OFF, outline="")
-            x = 28 if on else 12
-            c.create_oval(x - 8, 3, x + 8, 19, fill="white", outline="")
+            disco(c, 28 if on else 12, 11, 8, "white")
 
     class Spunta(tk.Frame):
         """Casella di spunta arrotondata."""
@@ -2652,8 +2800,7 @@ def _finestra(root, prova=None, stato=None):
             c.delete("all")
             if self.var.get():
                 rettangolo_arrotondato(c, 1, 1, 19, 19, 5, fill=ARANCIO, outline="")
-                c.create_line(5, 10, 9, 14, 15, 6, fill="white", width=2.5, capstyle="round",
-                              joinstyle="round")
+                linea(c, (5, 10, 9, 14, 15, 6), 2.5, "white")
             else:
                 rettangolo_arrotondato(c, 1, 1, 19, 19, 5, fill=SCHEDA, outline=BORDO_FORTE)
 
@@ -3267,14 +3414,7 @@ def _finestra(root, prova=None, stato=None):
         c.delete("all")
         l = c.winfo_width()
         a = 88
-        r1, g1, b1 = (int(MELANZANA_SCURA[i:i + 2], 16) for i in (1, 3, 5))
-        r2, g2, b2 = (int(MELANZANA_VIVA[i:i + 2], 16) for i in (1, 3, 5))
-        passi = max(l // 4, 1)
-        for i in range(passi):
-            t = i / passi
-            col = "#%02x%02x%02x" % (int(r1 + (r2 - r1) * t), int(g1 + (g2 - g1) * t),
-                                     int(b1 + (b2 - b1) * t))
-            c.create_rectangle(i * 4, 0, i * 4 + 4, a, fill=col, outline="")
+        fascia(c, l, a, MELANZANA_SCURA, MELANZANA_VIVA)
         c.create_rectangle(0, a, l, a + 4, fill=ARANCIO, outline="")
         c.create_image(22, 44, image=immagine_icona(False), anchor="w")
         c.create_text(100, 34, text="Newsletter Ubuntu-it", anchor="w", fill="white",
@@ -3289,24 +3429,20 @@ def _finestra(root, prova=None, stato=None):
         for nome, cx in (("tema", destra_x), ("stat", destra_x - 50)):
             centri_testata[nome] = cx
             fondo = "#7A3A70" if sopra_testata.get("nome") == nome else "#4A1A42"
-            c.create_oval(cx - 19, 44 - 19, cx + 19, 44 + 19, fill=fondo, outline="", tags=(nome, nome + "_fondo"))
+            disco(c, cx, 44, 19, fondo, tags=(nome, nome + "_fondo"))
             chiaro = "#F7E7F2"
             if nome == "stat":
                 for x1, alto in ((-8, 7), (-2, 14), (4, 10)):
                     c.create_rectangle(cx + x1, 44 + 7 - alto, cx + x1 + 5, 44 + 7, fill=chiaro,
                                        outline="", tags=(nome,))
             elif tema == "chiaro":           # luna: passa alla modalità notte
-                c.create_oval(cx - 8, 44 - 8, cx + 8, 44 + 8, fill=chiaro, outline="", tags=(nome,))
-                c.create_oval(cx - 3, 44 - 12, cx + 11, 44 + 2, fill=fondo, outline="",
-                              tags=(nome, nome + "_fondo"))
+                disco(c, cx, 44, 8, chiaro, ritaglio=(4, -5, 7), tags=(nome,))
             else:                            # sole: passa alla modalità giorno
-                c.create_oval(cx - 5, 44 - 5, cx + 5, 44 + 5, fill="#FFD27A", outline="", tags=(nome,))
-                import math
+                disco(c, cx, 44, 5, "#FFD27A", tags=(nome,))
                 for k in range(8):
                     a = math.radians(k * 45)
-                    c.create_line(cx + 8 * math.cos(a), 44 + 8 * math.sin(a), cx + 11 * math.cos(a),
-                                  44 + 11 * math.sin(a), fill="#FFD27A", width=2, capstyle="round",
-                                  tags=(nome,))
+                    linea(c, (cx + 8 * math.cos(a), 44 + 8 * math.sin(a), cx + 11 * math.cos(a),
+                              44 + 11 * math.sin(a)), 2, "#FFD27A", tags=(nome,))
 
     # Il mouse si segue per posizione sull'intera intestazione: niente eventi sulle singole
     # forme (ricrearle sotto il puntatore generava un ciclo infinito di ridisegni).
@@ -3323,8 +3459,7 @@ def _finestra(root, prova=None, stato=None):
         if nome == sopra_testata["nome"]:
             return
         sopra_testata["nome"] = nome
-        for n in centri_testata:
-            testata.itemconfigure(n + "_fondo", fill="#7A3A70" if n == nome else "#4A1A42")
+        disegna_testata()
         testata.configure(cursor="hand2" if nome else "")
         if nome:
             testo = {"stat": "Statistiche dei bug da Launchpad",
@@ -3420,7 +3555,7 @@ def _finestra(root, prova=None, stato=None):
 
     def colore_pallino(colore):
         pallino.delete("all")
-        pallino.create_oval(1, 1, 11, 11, fill=colore, outline="")
+        disco(pallino, 6, 6, 5, colore)
     colore_pallino(GRIGIO_CALDO)
 
     p = tk.Frame(dettaglio, bg=SCHEDA)
@@ -3716,12 +3851,99 @@ def _finestra(root, prova=None, stato=None):
         x = risultato.get(chiave)
         if x and os.path.exists(x):
             subprocess.Popen(["xdg-open", x], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    b_apripdf = Bottone(piede, "Apri PDF", lambda: apri("pdf"), tipo="primario")
+    b_carica = Bottone(piede, "Carica sul wiki", lambda: carica_sul_wiki(), tipo="primario")
+    b_apripdf = Bottone(piede, "Apri PDF", lambda: apri("pdf"))
     b_aprilog = Bottone(piede, "Apri log", lambda: apri("log"))
     b_cartella = Bottone(piede, "Apri cartella", lambda: apri("cartella"))
-    for b in (b_apripdf, b_aprilog, b_cartella):
+    for b in (b_carica, b_apripdf, b_aprilog, b_cartella):
         b.pack(side="right", padx=(8, 0))
         b.stato(False)
+    con_suggerimento(b_carica, "Apre la pagina degli allegati del numero e copia il percorso del PDF")
+
+    def pdf_pronto():
+        x = risultato.get("pdf")
+        return bool(x and os.path.exists(x) and risultato.get("dati"))
+
+    def carica_sul_wiki():
+        if not pdf_pronto():
+            return
+        pdf = risultato["pdf"]
+        anno, num = risultato["dati"]["anno"], risultato["dati"]["numero"]
+        url = url_allegati(cfg, anno, num)
+
+        def copia():
+            root.clipboard_clear()
+            root.clipboard_append(pdf)
+            root.update()               # gli appunti restano disponibili anche agli altri programmi
+
+        copia()
+        apri_nel_browser(url)
+        registro.info("Carica sul wiki: aperta %s, percorso del PDF copiato negli appunti", url)
+        scrivi(f"Pagina degli allegati aperta nel browser; il percorso del PDF è negli appunti.", "INFO",
+               prompt=True)
+
+        top = finestra_modale("Carica il PDF sul wiki", 620, 470)
+        top.configure(bg=SCHEDA)
+        testa = tk.Canvas(top, height=96, highlightthickness=0, bg=MELANZANA_SCURA)
+        testa.pack(fill="x")
+
+        def disegna(_=None):
+            testa.delete("all")
+            l = testa.winfo_width()
+            fascia(testa, l, 92, "#2C001E", "#77216F")
+            testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
+            testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
+                              text=f"NUMERO {num:03d}/{anno} · WIKI UBUNTU-IT")
+            testa.create_text(28, 62, anchor="w", fill="white", font=F["enorme"], text="Carica il PDF sul wiki")
+        testa.bind("<Configure>", disegna)
+
+        corpo_c = tk.Frame(top, bg=SCHEDA, padx=28, pady=18)
+        corpo_c.pack(fill="both", expand=True)
+        for i, testo_passo in enumerate((
+                "Ho aperto nel browser la pagina degli allegati del numero. Se il wiki lo chiede, "
+                "accedi con il tuo account Launchpad.",
+                "Nel modulo «Nuovo allegato» premi «Sfoglia…», poi Ctrl+L e Ctrl+V: "
+                "il percorso del PDF è già negli appunti. Premi Invio.",
+                "Controlla il nome e premi «Carica». In alternativa trascina il file dalla cartella "
+                "nella finestra del browser.")):
+            riga_p = tk.Frame(corpo_c, bg=SCHEDA)
+            riga_p.pack(fill="x", pady=5)
+            tondo = tk.Canvas(riga_p, width=28, height=28, bg=SCHEDA, highlightthickness=0)
+            disco(tondo, 14, 14, 13, ARANCIO)
+            tondo.create_text(14, 14, text=str(i + 1), fill="white", font=F["bottone"])
+            tondo.pack(side="left", anchor="n")
+            tk.Label(riga_p, text=testo_passo, bg=SCHEDA, fg=TESTO, font=F["testo"], anchor="w",
+                     justify="left", wraplength=500).pack(side="left", padx=(12, 0), fill="x")
+
+        tk.Label(corpo_c, text="PDF DA CARICARE", bg=SCHEDA, fg=TENUE, font=F["piccolo_b"]).pack(
+            anchor="w", pady=(14, 4))
+        pan = Pannello(corpo_c, sfondo=SFONDO, bordo=BORDO, r=12, padx=14, pady=10)
+        pan.pack(fill="x")
+        tk.Label(pan.interno, text=os.path.basename(pdf), bg=SFONDO, fg=TESTO, font=F["bottone"],
+                 anchor="w").pack(fill="x")
+        dim = os.path.getsize(pdf)
+        tk.Label(pan.interno, text=f"{pdf.replace(casa, '~')}  ·  {dim / 1024:.0f} KB", bg=SFONDO, fg=TENUE,
+                 font=F["piccolo"], anchor="w", justify="left", wraplength=520).pack(fill="x")
+        v_copiato = tk.StringVar(value="Percorso copiato negli appunti.")
+        tk.Label(corpo_c, textvariable=v_copiato, bg=SCHEDA, fg=VERDE_TESTO, font=F["piccolo"],
+                 anchor="w").pack(fill="x", pady=(8, 0))
+
+        tk.Frame(top, bg=BORDO, height=1).pack(fill="x")
+        piede_c = tk.Frame(top, bg=SCHEDA, padx=28, pady=14)
+        piede_c.pack(fill="x")
+
+        def copia_di_nuovo():
+            copia()
+            v_copiato.set("Percorso copiato di nuovo negli appunti.")
+        Bottone(piede_c, "Fatto", top.destroy, tipo="primario", alto=40).pack(side="right")
+        Bottone(piede_c, "Mostra il file", lambda: mostra_nella_cartella(pdf), alto=40).pack(
+            side="right", padx=(0, 10))
+        Bottone(piede_c, "Copia il percorso", copia_di_nuovo, alto=40).pack(side="right", padx=(0, 10))
+        Bottone(piede_c, "Riapri la pagina", lambda: apri_nel_browser(url), tipo="piatto", alto=40).pack(
+            side="left")
+        if prova_carica:
+            prova_carica(top, url, pdf)
+        mostra_modale(top)
 
 
     # --- impostazioni dalla GUI -------------------------------------------------------
@@ -3854,11 +4076,7 @@ def _finestra(root, prova=None, stato=None):
         def disegna(_=None):
             testa.delete("all")
             l = testa.winfo_width()
-            for i in range(0, l, 4):
-                t = i / max(l, 1)
-                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x00 + 0x21 * t),
-                                         int(0x1E + (0x6F - 0x1E) * t))
-                testa.create_rectangle(i, 0, i + 4, 124, fill=col, outline="")
+            fascia(testa, l, 124, "#2C001E", "#77216F")
             testa.create_rectangle(0, 124, l, 128, fill=ARANCIO, outline="")
             testa.create_image(28, 62, image=immagine_icona(False), anchor="w")
             testa.create_text(110, 40, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
@@ -3983,6 +4201,7 @@ def _finestra(root, prova=None, stato=None):
         b_cartella.stato(True)
         b_aprilog.stato(True)
         b_apripdf.stato(bool(dato.get("pdf")))
+        b_carica.stato(pdf_pronto())
         mostra_gettoni(totali["errori"], totali["avvisi"], totali["refusi"], mostra_ok=False)
 
     def controlla_coda(coda):
@@ -4122,7 +4341,7 @@ def _finestra(root, prova=None, stato=None):
         except OSError as e:
             scrivi(f"Impostazioni non salvate: {e}", "AVVISO")
         esito_barra["colore"] = None
-        for b in (b_cartella, b_aprilog, b_apripdf):
+        for b in (b_cartella, b_aprilog, b_apripdf, b_carica):
             b.stato(False)
         coda, stop = queue.Queue(), threading.Event()
         lavoro_attivo.update(coda=coda, stop=stop, inizio=time.monotonic(), ultimo="")
@@ -4182,11 +4401,7 @@ def _finestra(root, prova=None, stato=None):
         def disegna(_=None):
             testa.delete("all")
             l = testa.winfo_width()
-            for i in range(0, l, 4):
-                t = i / max(l, 1)
-                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
-                                         int(0x1E + (0x6F - 0x1E) * t))
-                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            fascia(testa, l, 92, "#2C001E", "#77216F")
             testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
             testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
                               text="IL WIKI HA BLOCCATO IL DOWNLOAD AUTOMATICO")
@@ -4203,7 +4418,7 @@ def _finestra(root, prova=None, stato=None):
             riga_p = tk.Frame(corpo_b, bg=SCHEDA)
             riga_p.pack(fill="x", pady=5)
             tondo = tk.Canvas(riga_p, width=28, height=28, bg=SCHEDA, highlightthickness=0)
-            tondo.create_oval(1, 1, 27, 27, fill=ARANCIO if i < 2 else SEGMENTATO, outline="")
+            disco(tondo, 14, 14, 13, ARANCIO if i < 2 else SEGMENTATO)
             tondo.create_text(14, 14, text=str(i + 1), fill="white" if i < 2 else TENUE, font=F["bottone"])
             tondo.pack(side="left")
             tk.Label(riga_p, text=testo_passo, bg=SCHEDA, fg=TESTO, font=F["testo"], anchor="w", justify="left",
@@ -4250,6 +4465,7 @@ def _finestra(root, prova=None, stato=None):
         poi(esito["percorso"])
 
     prova_browser = None
+    prova_carica = None
 
     # --- aggiornamenti da GitHub -------------------------------------------------------
     def riavvia_programma():
@@ -4331,11 +4547,7 @@ def _finestra(root, prova=None, stato=None):
         def disegna(_=None):
             testa.delete("all")
             l = testa.winfo_width()
-            for i in range(0, l, 4):
-                t = i / max(l, 1)
-                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
-                                         int(0x1E + (0x6F - 0x1E) * t))
-                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            fascia(testa, l, 92, "#2C001E", "#77216F")
             testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
             testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"],
                               text="LAUNCHPAD · UBUNTU")
@@ -4558,6 +4770,7 @@ def _finestra(root, prova=None, stato=None):
             b_cartella.stato(True)
             b_aprilog.stato(True)
             b_apripdf.stato(bool(risultato.get("pdf")))
+            b_carica.stato(pdf_pronto())
             mostra_anteprima(risultato)
             mostra_gettoni(totali["errori"], totali["avvisi"], totali["refusi"])
         if stato.get("barra"):
@@ -4596,6 +4809,7 @@ def _finestra(root, prova=None, stato=None):
         ("F5  ·  Ctrl+R", ("<F5>", "<Control-r>"), ("Controlla ora il wiki", lambda: avvia_controllo(manuale=True))),
         ("Risultato", None, None),
         ("Ctrl+P", ("<Control-p>",), ("Apri il PDF", lambda: apri("pdf"))),
+        ("Ctrl+U", ("<Control-u>",), ("Carica il PDF sul wiki", lambda: carica_sul_wiki())),
         ("Ctrl+Maiusc+O", ("<Control-O>", "<Control-Shift-O>"), ("Apri la cartella del numero", lambda: apri("cartella"))),
         ("Ctrl+L", ("<Control-l>",), ("Apri il log di sistema", apri_log_sistema)),
         ("Finestra", None, None),
@@ -4628,11 +4842,7 @@ def _finestra(root, prova=None, stato=None):
         def disegna(_=None):
             testa.delete("all")
             l = testa.winfo_width()
-            for i in range(0, l, 4):
-                t = i / max(l, 1)
-                col = "#%02x%02x%02x" % (int(0x2C + (0x77 - 0x2C) * t), int(0x21 * t),
-                                         int(0x1E + (0x6F - 0x1E) * t))
-                testa.create_rectangle(i, 0, i + 4, 92, fill=col, outline="")
+            fascia(testa, l, 92, "#2C001E", "#77216F")
             testa.create_rectangle(0, 92, l, 96, fill=ARANCIO, outline="")
             testa.create_text(28, 34, anchor="w", fill="#F7A27F", font=F["piccolo_b"], text="TASTIERA")
             testa.create_text(28, 62, anchor="w", fill="white", font=F["enorme"], text="Scorciatoie")
@@ -4665,7 +4875,8 @@ def _finestra(root, prova=None, stato=None):
 
     if prova:   # solo per i test automatici
         def imposta(**kw):
-            nonlocal prova_esplora, prova_novita
+            nonlocal prova_esplora, prova_novita, prova_carica
+            prova_carica = kw.get("carica", prova_carica)
             prova_esplora = kw.get("esplora", prova_esplora)
             prova_novita = kw.get("novita", prova_novita)
         prova(root, {"sorgente": v_sorgente, "file": v_file, "converti": converti_click,
@@ -4675,7 +4886,8 @@ def _finestra(root, prova=None, stato=None):
                      "filtro": alterna_filtro, "stato": stato, "banner": mostra_banner,
                      "attendi_browser": attendi_dal_browser, "aggiornamenti": controlla_aggiornamenti,
                      "imposta_browser": imposta_browser, "avvia_lavoro": avvia_lavoro,
-                     "ora_controllo": v_wiki3, "scorciatoie": mostra_scorciatoie})
+                     "ora_controllo": v_wiki3, "scorciatoie": mostra_scorciatoie,
+                     "carica": carica_sul_wiki, "risultato": risultato, "pulsante_carica": b_carica})
     elif not stato:
         root.after(600, avvia_controllo)
         root.after(1500, controlla_aggiornamenti)   # avvisa sempre; installa da solo se attivo
